@@ -52,6 +52,9 @@ def load_csv(filepath):
                         "lng": lng
                     })
 
+            # ⭐ 난이도 필드 추가
+            row["difficulty"] = row.get("난이도")  # 또는 difficulty_level 등 이름 변경 가능
+   
             data.append(row)
 
     return data
