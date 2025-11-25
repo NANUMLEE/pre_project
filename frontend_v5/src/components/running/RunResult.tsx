@@ -58,16 +58,6 @@ export function RunResult({ run, onComplete, onRunAgain }: RunResultProps) {
 
       {/* Content */}
       <div className="px-6 py-6">
-        {/* Route Map */}
-        <div className="mb-6">
-          <h3 className="text-[#2e2d52] mb-3">달린 경로</h3>
-          <div className="bg-gradient-to-br from-green-100 to-blue-100 rounded-2xl h-48 relative overflow-hidden">
-            <div className="absolute inset-0 flex items-center justify-center">
-              <MapPin className="w-12 h-12 text-[#f89305]" />
-            </div>
-          </div>
-        </div>
-
         {/* Detailed Stats */}
         <div className="mb-6">
           <h3 className="text-[#2e2d52] mb-3">상세 기록</h3>

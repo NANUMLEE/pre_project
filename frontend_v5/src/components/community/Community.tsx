@@ -1,7 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Home, MapPin, User, TrendingUp, Award, Calendar, BarChart3, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Home, MapPin, User, TrendingUp, Award, Calendar, BarChart3, ChevronLeft, ChevronRight, Clock, Flame, ChevronDown, ArrowRight } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Button } from '../ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '../ui/dropdown-menu';
 import { getCurrentUser } from '../../utils/auth';
 
 type CommunityProps = {
@@ -20,6 +27,7 @@ type RunningStats = {
     distance: number;
     pace: number;
     duration: number;
+    calories?: number;
   }>;
 };
 
@@ -27,6 +35,10 @@ export function Community({ onNavigate }: CommunityProps) {
   const [currentChart, setCurrentChart] = useState<'distance' | 'frequency' | 'pace'>('distance');
   const [stats, setStats] = useState<RunningStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [showAllRecords, setShowAllRecords] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [selectedRecordMonth, setSelectedRecordMonth] = useState<string | null>(null);
+  const months = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
 
   // 사용자의 러닝 기록 데이터 로드
   useEffect(() => {
@@ -54,7 +66,21 @@ export function Community({ onNavigate }: CommunityProps) {
 
         const data = await response.json();
         console.log('📊 러닝 통계:', data);
-        setStats(data);
+
+        // 칼로리 데이터 확인 및 처리
+        if (data.records) {
+          console.log('📋 기록 샘플:', data.records[0]);
+          console.log('🔥 칼로리 데이터:', data.records.map((r: any) => ({ id: r.id, calories: r.calories })));
+
+          // 칼로리가 없으면 거리를 기반으로 계산 (km당 약 100칼로리)
+          const processedRecords = data.records.map((record: any) => ({
+            ...record,
+            calories: record.calories || Math.round(record.distance * 100)
+          }));
+          setStats({ ...data, records: processedRecords });
+        } else {
+          setStats(data);
+        }
       } catch (error) {
         console.error('러닝 기록 로드 오류:', error);
       } finally {
@@ -65,80 +91,118 @@ export function Community({ onNavigate }: CommunityProps) {
     loadRunningStats();
   }, []);
 
-  // Mock data for line charts
-  const weeklyDistanceData = [
-    { day: '월', distance: 5.2 },
-    { day: '화', distance: 3.8 },
-    { day: '수', distance: 6.5 },
-    { day: '목', distance: 4.2 },
-    { day: '금', distance: 7.1 },
-    { day: '토', distance: 8.3 },
-    { day: '일', distance: 5.5 }
-  ];
+  // 월별 필터링 함수
+  const getRecordsByMonth = () => {
+    if (!stats || !stats.records) return [];
+    if (!selectedMonth || selectedMonth === '전체') return stats.records;
 
-  const weeklyFrequencyData = [
-    { week: '1주', count: 3 },
-    { week: '2주', count: 4 },
-    { week: '3주', count: 5 },
-    { week: '4주', count: 4 }
-  ];
+    const monthIndex = months.indexOf(selectedMonth) + 1;
+    const currentYear = new Date().getFullYear();
 
-  const paceChangeData = [
-    { month: '7월', pace: 6.2 },
-    { month: '8월', pace: 5.9 },
-    { month: '9월', pace: 5.5 },
-    { month: '10월', pace: 5.3 },
-    { month: '11월', pace: 5.0 }
-  ];
+    return stats.records.filter((record) => {
+      const date = new Date(record.date);
+      return date.getMonth() + 1 === monthIndex && date.getFullYear() === currentYear;
+    });
+  };
 
-  // Mock records
-  const records = [
-    {
-      id: '1',
-      courseName: '한강 러닝 코스',
-      date: '2025-11-10',
-      distance: 8.3,
-      duration: 2490, // seconds
-      pace: 5.0,
-      calories: 650
-    },
-    {
-      id: '2',
-      courseName: '올림픽공원 순환',
-      date: '2025-11-09',
-      distance: 5.5,
-      duration: 1650,
-      pace: 5.0,
-      calories: 430
-    },
-    {
-      id: '3',
-      courseName: '남산 야경 러닝',
-      date: '2025-11-08',
-      distance: 7.1,
-      duration: 2130,
-      pace: 5.0,
-      calories: 550
-    },
-    {
-      id: '4',
-      courseName: '여의도 공원',
-      date: '2025-11-07',
-      distance: 4.2,
-      duration: 1260,
-      pace: 5.0,
-      calories: 320
-    },
-    {
-      id: '5',
-      courseName: '청계천 코스',
-      date: '2025-11-05',
-      distance: 6.5,
-      duration: 1950,
-      pace: 5.0,
-      calories: 510
-    }
-  ];
+  // 기록 월별 필터링 함수
+  const getFilteredRecords = () => {
+    if (!stats || !stats.records) return [];
+    if (!selectedRecordMonth || selectedRecordMonth === '전체') return stats.records;
+
+    const monthIndex = months.indexOf(selectedRecordMonth) + 1;
+    const currentYear = new Date().getFullYear();
+
+    return stats.records.filter((record) => {
+      const date = new Date(record.date);
+      return date.getMonth() + 1 === monthIndex && date.getFullYear() === currentYear;
+    });
+  };
+
+  const filteredRecords = getFilteredRecords();
+
+  // 주간 데이터 계산 함수
+  const calculateWeeklyData = () => {
+    const records = getRecordsByMonth();
+
+    // 4주 데이터 초기화
+    const weeks: { [key: string]: { distance: number; count: number; pace: number[] } } = {
+      '1주': { distance: 0, count: 0, pace: [] },
+      '2주': { distance: 0, count: 0, pace: [] },
+      '3주': { distance: 0, count: 0, pace: [] },
+      '4주': { distance: 0, count: 0, pace: [] }
+    };
+
+    const startDate = selectedMonth && selectedMonth !== '전체'
+      ? new Date(new Date().getFullYear(), months.indexOf(selectedMonth), 1)
+      : new Date(new Date().getFullYear(), 0, 1);
+
+    records.forEach((record) => {
+      const recordDate = new Date(record.date);
+      const day = recordDate.getDate();
+      const weekNum = Math.ceil(day / 7);
+      const weekKey = `${weekNum}주`;
+
+      if (weeks[weekKey]) {
+        weeks[weekKey].distance += record.distance;
+        weeks[weekKey].count += 1;
+        weeks[weekKey].pace.push(record.pace);
+      }
+    });
+
+    // 데이터 변환
+    return [
+      {
+        week: '1주',
+        distance: parseFloat(weeks['1주'].distance.toFixed(1)),
+        frequency: weeks['1주'].count,
+        pace: weeks['1주'].pace.length > 0
+          ? parseFloat((weeks['1주'].pace.reduce((a, b) => a + b, 0) / weeks['1주'].pace.length).toFixed(1))
+          : 0
+      },
+      {
+        week: '2주',
+        distance: parseFloat(weeks['2주'].distance.toFixed(1)),
+        frequency: weeks['2주'].count,
+        pace: weeks['2주'].pace.length > 0
+          ? parseFloat((weeks['2주'].pace.reduce((a, b) => a + b, 0) / weeks['2주'].pace.length).toFixed(1))
+          : 0
+      },
+      {
+        week: '3주',
+        distance: parseFloat(weeks['3주'].distance.toFixed(1)),
+        frequency: weeks['3주'].count,
+        pace: weeks['3주'].pace.length > 0
+          ? parseFloat((weeks['3주'].pace.reduce((a, b) => a + b, 0) / weeks['3주'].pace.length).toFixed(1))
+          : 0
+      },
+      {
+        week: '4주',
+        distance: parseFloat(weeks['4주'].distance.toFixed(1)),
+        frequency: weeks['4주'].count,
+        pace: weeks['4주'].pace.length > 0
+          ? parseFloat((weeks['4주'].pace.reduce((a, b) => a + b, 0) / weeks['4주'].pace.length).toFixed(1))
+          : 0
+      }
+    ];
+  };
+
+  const weeklyData = calculateWeeklyData();
+
+  const weeklyDistanceData = weeklyData.map(item => ({
+    day: item.week,
+    distance: item.distance
+  }));
+
+  const weeklyFrequencyData = weeklyData.map(item => ({
+    week: item.week,
+    count: item.frequency
+  }));
+
+  const paceChangeData = weeklyData.map(item => ({
+    month: item.week,
+    pace: item.pace
+  }));
 
   const formatDuration = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
@@ -154,12 +218,12 @@ export function Community({ onNavigate }: CommunityProps) {
     return `${date.getMonth() + 1}월 ${date.getDate()}일`;
   };
 
-  // 실제 데이터 또는 Mock 데이터 사용 (실제 데이터를 우선)
+  // 실제 데이터만 사용
   const totalDistance = stats?.totalDistance ?? 0;
   const totalDuration = stats?.totalDuration ?? 0;
   const avgPace = stats?.avgPace ?? 0;
   const avgDistance = stats?.avgDistance ?? 0;
-  const displayRecords = stats?.records || records;
+  const displayRecords = stats?.records || [];
 
   // 기록이 있을 때만 max 계산
   const maxDistance = displayRecords.length > 0 ? Math.max(...displayRecords.map(r => r.distance)) : 0;
@@ -195,13 +259,13 @@ export function Community({ onNavigate }: CommunityProps) {
                 fontSize: '12px'
               }}
             />
-            <Line 
-              type="monotone" 
-              dataKey="distance" 
-              stroke="#f89305" 
+            <Line
+              type="monotone"
+              dataKey="distance"
+              stroke="#f89305"
               strokeWidth={2}
-              dot={{ fill: '#f89305', r: 4 }}
-              activeDot={{ r: 6 }}
+              dot={{ fill: '#f89305', r: 3 }}
+              activeDot={{ r: 5 }}
             />
           </LineChart>
         </ResponsiveContainer>
@@ -229,13 +293,13 @@ export function Community({ onNavigate }: CommunityProps) {
                 fontSize: '12px'
               }}
             />
-            <Line 
-              type="monotone" 
-              dataKey="count" 
-              stroke="#03cfb4" 
+            <Line
+              type="monotone"
+              dataKey="count"
+              stroke="#03cfb4"
               strokeWidth={2}
-              dot={{ fill: '#03cfb4', r: 4 }}
-              activeDot={{ r: 6 }}
+              dot={{ fill: '#03cfb4', r: 3 }}
+              activeDot={{ r: 5 }}
             />
           </LineChart>
         </ResponsiveContainer>
@@ -250,9 +314,10 @@ export function Community({ onNavigate }: CommunityProps) {
               tick={{ fontSize: 12, fill: '#787878' }}
               stroke="#e0e0e0"
             />
-            <YAxis 
+            <YAxis
               tick={{ fontSize: 12, fill: '#787878' }}
               stroke="#e0e0e0"
+              domain={[2, 'auto']}
               label={{ value: 'min/km', angle: -90, position: 'insideLeft', style: { fontSize: 12, fill: '#787878' } }}
             />
             <Tooltip 
@@ -263,13 +328,13 @@ export function Community({ onNavigate }: CommunityProps) {
                 fontSize: '12px'
               }}
             />
-            <Line 
-              type="monotone" 
-              dataKey="pace" 
-              stroke="#2e2d52" 
+            <Line
+              type="monotone"
+              dataKey="pace"
+              stroke="#2e2d52"
               strokeWidth={2}
-              dot={{ fill: '#2e2d52', r: 4 }}
-              activeDot={{ r: 6 }}
+              dot={{ fill: '#2e2d52', r: 3 }}
+              activeDot={{ r: 5 }}
             />
           </LineChart>
         </ResponsiveContainer>
@@ -319,11 +384,39 @@ export function Community({ onNavigate }: CommunityProps) {
       <div className="px-6 py-6 space-y-6">
         {/* Running Pattern Prediction */}
         <div className="bg-white rounded-2xl p-6 shadow-sm">
-          <div className="flex items-center gap-2 mb-4">
-            <TrendingUp className="w-5 h-5 text-[#f89305]" />
-            <h3 className="text-[#2e2d52]">러닝 패턴 예측</h3>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-[#f89305]" />
+              <h3 className="text-[#2e2d52]">러닝 패턴</h3>
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 px-3 text-sm font-medium text-[#2e2d52] border-gray-200 hover:bg-gray-50 hover:border-gray-300 transition-colors"
+                >
+                  {selectedMonth || '전체'}
+                  <ChevronDown className="w-4 h-4 ml-2 opacity-70" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" style={{ maxHeight: "150px" }} className="w-40 overflow-y-auto bg-white">
+                <DropdownMenuItem onClick={() => setSelectedMonth(null)} className="cursor-pointer py-2">
+                  전체
+                </DropdownMenuItem>
+                {months.map((month) => (
+                  <DropdownMenuItem
+                    key={month}
+                    onClick={() => setSelectedMonth(month)}
+                    className="cursor-pointer py-2"
+                  >
+                    {month}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
-          
+
           {/* Chart Navigation */}
           <div className="flex items-center justify-between mb-3">
             <Button
@@ -382,87 +475,179 @@ export function Community({ onNavigate }: CommunityProps) {
 
         {/* Records List */}
         <div className="bg-white rounded-2xl p-6 shadow-sm">
-          <div className="flex items-center gap-2 mb-4">
-            <Calendar className="w-5 h-5 text-[#2e2d52]" />
-            <h3 className="text-[#2e2d52]">러닝 기록</h3>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-[#2e2d52]" />
+              <h3 className="text-[#2e2d52]">러닝 기록</h3>
+            </div>
+            <button
+              onClick={() => setShowAllRecords(true)}
+              className="flex items-center gap-1 text-sm text-[#787878] font-medium hover:text-[#f89305] transition-colors group"
+            >
+              월간 기록
+              <ArrowRight className="w-4 h-4 text-[#787878] group-hover:text-[#f89305] group-hover:translate-x-1 transition-all" />
+            </button>
           </div>
-          
-          <div className="space-y-3 max-h-[400px] overflow-y-auto">
+
+          <div className="space-y-3">
             {displayRecords.slice(0, 2).map((record) => (
               <div
                 key={record.id}
-                className="border border-gray-200 rounded-xl p-4 hover:border-[#f89305] transition-colors"
+                className="bg-white rounded-xl p-3 shadow-sm"
               >
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <h4 className="text-[#2e2d52] mb-1">{record.courseName}</h4>
-                    <p className="text-sm text-[#787878]">{formatDate(record.date)}</p>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2 text-[#787878]">
+                    <Calendar className="w-2.5 h-2.5" />
+                    <span className="text-xs">{formatDate(record.date)}</span>
+                  </div>
+                  <div className="bg-[#f89305]/10 text-[#f89305] px-3 py-1.8 rounded-full text-xs">
+                    {record.distance}km
                   </div>
                 </div>
-                
-                <div className="grid grid-cols-4 gap-2">
-                  <div>
-                    <p className="text-xs text-[#787878] mb-1">거리</p>
-                    <p className="text-sm text-[#2e2d52]">{record.distance} km</p>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <div className="bg-[#03cfb4]/10 p-1 rounded">
+                      <Clock className="w-4 h-4 text-[#03cfb4]" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#787878]">시간</p>
+                      <p className="text-xs text-[#2e2d52]">{formatDuration(record.duration)}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs text-[#787878] mb-1">시간</p>
-                    <p className="text-sm text-[#2e2d52]">{formatDuration(record.duration)}</p>
+
+                  <div className="flex items-center gap-1.5">
+                    <div className="bg-[#2e2d52]/10 p-1 rounded">
+                      <MapPin className="w-4 h-4 text-[#2e2d52]" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#787878]">페이스</p>
+                      <p className="text-xs text-[#2e2d52]">{record.pace.toFixed(1)}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs text-[#787878] mb-1">페이스</p>
-                    <p className="text-sm text-[#2e2d52]">{record.pace}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-[#787878] mb-1">칼로리</p>
-                    <p className="text-sm text-[#2e2d52]">{record.calories}</p>
+
+                  <div className="flex items-center gap-1.5">
+                    <div className="bg-[#f89305]/10 p-1 rounded">
+                      <Flame className="w-4 h-4 text-[#f89305]" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#787878]">칼로리</p>
+                      <p className="text-xs text-[#2e2d52]">{record.calories || 0}</p>
+                    </div>
                   </div>
                 </div>
               </div>
             ))}
-            
-            {displayRecords.length > 2 && (
-              <div className="pt-2 border-t border-gray-200">
-                <p className="text-xs text-center text-[#787878]">
-                  아래로 스크롤하여 {displayRecords.length - 2}개의 기록을 더 볼 수 있습니다
-                </p>
-                {displayRecords.slice(2).map((record) => (
-                  <div
-                    key={record.id}
-                    className="border border-gray-200 rounded-xl p-4 hover:border-[#f89305] transition-colors mt-3"
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <h4 className="text-[#2e2d52] mb-1">{record.courseName}</h4>
-                        <p className="text-sm text-[#787878]">{formatDate(record.date)}</p>
-                      </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-4 gap-2">
-                      <div>
-                        <p className="text-xs text-[#787878] mb-1">거리</p>
-                        <p className="text-sm text-[#2e2d52]">{record.distance} km</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-[#787878] mb-1">시간</p>
-                        <p className="text-sm text-[#2e2d52]">{formatDuration(record.duration)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-[#787878] mb-1">페이스</p>
-                        <p className="text-sm text-[#2e2d52]">{record.pace}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-[#787878] mb-1">칼로리</p>
-                        <p className="text-sm text-[#2e2d52]">{record.calories}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </div>
       </div>
+
+      {/* All Records Dialog */}
+      <Dialog open={showAllRecords} onOpenChange={setShowAllRecords}>
+        <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>전체 러닝 기록</DialogTitle>
+            <DialogDescription>
+              모든 러닝 기록을 확인할 수 있습니다.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Month Filter Navigation */}
+          <div className="flex items-center justify-between py-3 border-b border-gray-200">
+            <button
+              onClick={() => {
+                const currentIndex = selectedRecordMonth ? months.indexOf(selectedRecordMonth) : -1;
+                if (currentIndex > 0) {
+                  setSelectedRecordMonth(months[currentIndex - 1]);
+                } else if (currentIndex === 0) {
+                  setSelectedRecordMonth(null);
+                }
+              }}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-[#2e2d52]"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+
+            <span className="text-sm font-medium text-[#2e2d52] min-w-16 text-center">
+              {selectedRecordMonth || '전체'}
+            </span>
+
+            <button
+              onClick={() => {
+                const currentIndex = selectedRecordMonth ? months.indexOf(selectedRecordMonth) : -1;
+                if (currentIndex === -1) {
+                  setSelectedRecordMonth(months[0]);
+                } else if (currentIndex < months.length - 1) {
+                  setSelectedRecordMonth(months[currentIndex + 1]);
+                }
+              }}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-[#2e2d52]"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="space-y-3 py-4 max-h-96 min-h-96 overflow-y-auto">
+            {filteredRecords.length === 0 ? (
+              <div className="flex items-center justify-center min-h-96 text-center">
+                <div>
+                  <Calendar className="w-8 h-8 text-[#787878] mx-auto mb-2 opacity-50" />
+                  <p className="text-sm text-[#787878]">기록이 없습니다</p>
+                </div>
+              </div>
+            ) : (
+              filteredRecords.map((record) => (
+              <div
+                key={record.id}
+                className="bg-white rounded-xl p-3 shadow-sm border border-gray-100"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2 text-[#787878]">
+                    <Calendar className="w-2.5 h-2.5" />
+                    <span className="text-xs">{formatDate(record.date)}</span>
+                  </div>
+                  <div className="bg-[#f89305]/10 text-[#f89305] px-3 py-1.8 rounded-full text-xs">
+                    {record.distance}km
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <div className="bg-[#03cfb4]/10 p-1 rounded">
+                      <Clock className="w-4 h-4 text-[#03cfb4]" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#787878]">시간</p>
+                      <p className="text-xs text-[#2e2d52]">{formatDuration(record.duration)}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <div className="bg-[#2e2d52]/10 p-1 rounded">
+                      <MapPin className="w-4 h-4 text-[#2e2d52]" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#787878]">페이스</p>
+                      <p className="text-xs text-[#2e2d52]">{record.pace.toFixed(1)}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <div className="bg-[#f89305]/10 p-1 rounded">
+                      <Flame className="w-4 h-4 text-[#f89305]" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#787878]">칼로리</p>
+                      <p className="text-xs text-[#2e2d52]">{record.calories || 0}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Bottom Navigation */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg">

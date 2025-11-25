@@ -40,6 +40,7 @@ export type Course = {
   reviews?: number;
   isFavorite?: boolean;
   avgPace?: number;
+  expectedCalories?: number;
 };
 
 export type Post = {

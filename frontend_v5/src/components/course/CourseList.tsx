@@ -170,37 +170,35 @@ export function CourseList({ onCourseSelect, onNavigate, onStartRunning, courses
               >
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h4 className="text-[#2e2d52]">{course.name}</h4>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleCourseFavorite(course.id);
-                        }}
-                        className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-                      >
-                        <Star className={`w-4 h-4 ${course.isFavorite ? 'text-[#f89305] fill-[#f89305]' : 'text-[#787878]'}`} />
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className={`text-xs px-2 py-1 rounded-full ${DIFFICULTY_COLORS[course.difficulty]}`}>
-                        {'difficultyString' in course && course.difficultyString ? course.difficultyString : DIFFICULTY_LABELS[course.difficulty]}
-                      </span>
-                      <span className="text-sm text-[#787878]">{'distanceString' in course ? course.distanceString : course.distance}</span>
-                      <span className="text-sm text-[#787878]">•</span>
-                      <span className="text-sm text-[#787878]">평균 페이스 {course.avgPace}분/km</span>
-                    </div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-sm text-[#787878]">
-                        내 위치에서 {userPosition && 'startPoint' in course ?
-                          (() => {
-                            const midpoint = getMidpoint(course.startPoint[0], course.startPoint[1], course.route[course.route.length - 1][0], course.route[course.route.length - 1][1]);
-                            return calculateDistance(userPosition.lat, userPosition.lng, midpoint[0], midpoint[1]).toFixed(2);
-                          })()
-                          : '계산 중'}km
-                      </span>
-                    </div>
+                    <h4 className="text-[#2e2d52] mb-1">{course.name}</h4>
                   </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleCourseFavorite(course.id);
+                    }}
+                    className="p-1 hover:bg-gray-100 rounded-full transition-colors flex-shrink-0"
+                  >
+                    <Star className={`w-5 h-5 ${course.isFavorite ? 'text-[#f89305] fill-[#f89305]' : 'text-[#787878]'}`} />
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={`text-xs px-2 py-1 rounded-full ${DIFFICULTY_COLORS[course.difficulty]}`}>
+                    {'difficultyString' in course && course.difficultyString ? course.difficultyString : DIFFICULTY_LABELS[course.difficulty]}
+                  </span>
+                  <span className="text-sm text-[#787878]">{'distanceString' in course ? course.distanceString : course.distance}</span>
+                  <span className="text-sm text-[#787878]">•</span>
+                  <span className="text-sm font-semibold text-[#f89305] bg-orange-50 px-2 py-1 rounded-lg">예상 칼로리 {course.expectedCalories || 250}kcal</span>
+                </div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-sm text-[#787878]">
+                    내 위치에서 {userPosition && 'startPoint' in course ?
+                      (() => {
+                        const midpoint = getMidpoint(course.startPoint[0], course.startPoint[1], course.route[course.route.length - 1][0], course.route[course.route.length - 1][1]);
+                        return calculateDistance(userPosition.lat, userPosition.lng, midpoint[0], midpoint[1]).toFixed(2);
+                      })()
+                      : '계산 중'}km
+                  </span>
                 </div>
                 <p className="text-sm text-[#787878]">{course.description}</p>
               </div>
@@ -224,24 +222,24 @@ export function CourseList({ onCourseSelect, onNavigate, onStartRunning, courses
                     <div className="flex items-center gap-2 mb-1">
                       <MapPinned className="w-4 h-4 text-[#f89305]" />
                       <h4 className="text-[#2e2d52]">{place.name}</h4>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          togglePlaceFavorite(place.id);
-                        }}
-                        className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-                      >
-                        <Star className={`w-4 h-4 ${place.isFavorite ? 'text-[#f89305] fill-[#f89305]' : 'text-[#787878]'}`} />
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-sm text-[#787878]">
-                        내 위치에서 {userPosition && 'startPoint' in place ?
-                          calculateDistance(userPosition.lat, userPosition.lng, place.startPoint[0], place.startPoint[1]).toFixed(2)
-                          : place.distance}km
-                      </span>
                     </div>
                   </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      togglePlaceFavorite(place.id);
+                    }}
+                    className="p-1 hover:bg-gray-100 rounded-full transition-colors flex-shrink-0"
+                  >
+                    <Star className={`w-5 h-5 ${place.isFavorite ? 'text-[#f89305] fill-[#f89305]' : 'text-[#787878]'}`} />
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-sm text-[#787878]">
+                    내 위치에서 {userPosition && 'startPoint' in place ?
+                      calculateDistance(userPosition.lat, userPosition.lng, place.startPoint[0], place.startPoint[1]).toFixed(2)
+                      : place.distance}km
+                  </span>
                 </div>
                 <p className="text-sm text-[#787878]">{place.description}</p>
               </div>
@@ -269,37 +267,35 @@ export function CourseList({ onCourseSelect, onNavigate, onStartRunning, courses
                   >
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h4 className="text-[#2e2d52]">{course.name}</h4>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleCourseFavorite(course.id);
-                            }}
-                            className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-                          >
-                            <Star className="w-4 h-4 text-[#f89305] fill-[#f89305]" />
-                          </button>
-                        </div>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className={`text-xs px-2 py-1 rounded-full ${DIFFICULTY_COLORS[course.difficulty]}`}>
-                            {'difficultyString' in course && course.difficultyString ? course.difficultyString : DIFFICULTY_LABELS[course.difficulty]}
-                          </span>
-                          <span className="text-sm text-[#787878]">{'distanceString' in course ? course.distanceString : course.distance}</span>
-                          <span className="text-sm text-[#787878]">•</span>
-                          <span className="text-sm text-[#787878]">평균 페이스 {course.avgPace}분/km</span>
-                        </div>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-sm text-[#787878]">
-                            내 위치에서 {userPosition && 'startPoint' in course ?
-                              (() => {
-                                const midpoint = getMidpoint(course.startPoint[0], course.startPoint[1], course.route[course.route.length - 1][0], course.route[course.route.length - 1][1]);
-                                return calculateDistance(userPosition.lat, userPosition.lng, midpoint[0], midpoint[1]).toFixed(2);
-                              })()
-                              : '계산 중'}km
-                          </span>
-                        </div>
+                        <h4 className="text-[#2e2d52] mb-1">{course.name}</h4>
                       </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleCourseFavorite(course.id);
+                        }}
+                        className="p-1 hover:bg-gray-100 rounded-full transition-colors flex-shrink-0"
+                      >
+                        <Star className="w-5 h-5 text-[#f89305] fill-[#f89305]" />
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className={`text-xs px-2 py-1 rounded-full ${DIFFICULTY_COLORS[course.difficulty]}`}>
+                        {'difficultyString' in course && course.difficultyString ? course.difficultyString : DIFFICULTY_LABELS[course.difficulty]}
+                      </span>
+                      <span className="text-sm text-[#787878]">{'distanceString' in course ? course.distanceString : course.distance}</span>
+                      <span className="text-sm text-[#787878]">•</span>
+                      <span className="text-sm font-semibold text-[#f89305] bg-orange-50 px-2 py-1 rounded-lg">예상 칼로리 {course.expectedCalories || 250}kcal</span>
+                    </div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-sm text-[#787878]">
+                        내 위치에서 {userPosition && 'startPoint' in course ?
+                          (() => {
+                            const midpoint = getMidpoint(course.startPoint[0], course.startPoint[1], course.route[course.route.length - 1][0], course.route[course.route.length - 1][1]);
+                            return calculateDistance(userPosition.lat, userPosition.lng, midpoint[0], midpoint[1]).toFixed(2);
+                          })()
+                          : '계산 중'}km
+                      </span>
                     </div>
                     <p className="text-sm text-[#787878]">{course.description}</p>
                   </div>
@@ -317,24 +313,24 @@ export function CourseList({ onCourseSelect, onNavigate, onStartRunning, courses
                         <div className="flex items-center gap-2 mb-1">
                           <MapPinned className="w-4 h-4 text-[#f89305]" />
                           <h4 className="text-[#2e2d52]">{place.name}</h4>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              togglePlaceFavorite(place.id);
-                            }}
-                            className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-                          >
-                            <Star className="w-4 h-4 text-[#f89305] fill-[#f89305]" />
-                          </button>
-                        </div>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-sm text-[#787878]">
-                            내 위치에서 {userPosition && 'startPoint' in place ?
-                              calculateDistance(userPosition.lat, userPosition.lng, place.startPoint[0], place.startPoint[1]).toFixed(2)
-                              : place.distance}km
-                          </span>
                         </div>
                       </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          togglePlaceFavorite(place.id);
+                        }}
+                        className="p-1 hover:bg-gray-100 rounded-full transition-colors flex-shrink-0"
+                      >
+                        <Star className="w-5 h-5 text-[#f89305] fill-[#f89305]" />
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-sm text-[#787878]">
+                        내 위치에서 {userPosition && 'startPoint' in place ?
+                          calculateDistance(userPosition.lat, userPosition.lng, place.startPoint[0], place.startPoint[1]).toFixed(2)
+                          : place.distance}km
+                      </span>
                     </div>
                     <p className="text-sm text-[#787878]">{place.description}</p>
                   </div>
@@ -383,8 +379,8 @@ export function CourseList({ onCourseSelect, onNavigate, onStartRunning, courses
                   <p className="text-2xl font-bold text-[#2e2d52]">{'distanceString' in selectedItem ? selectedItem.distanceString : selectedItem.distance}</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-sm text-[#787878] mb-2">평균 페이스</p>
-                  <p className="text-2xl font-bold text-[#2e2d52]">{selectedItem.avgPace}분/km</p>
+                  <p className="text-sm text-[#787878] mb-2">예상 칼로리</p>
+                  <p className="text-2xl font-bold text-[#2e2d52]">{selectedItem.expectedCalories || 250}kcal</p>
                 </div>
                 <div className="text-center">
                   <p className="text-sm text-[#787878] mb-2">난이도</p>

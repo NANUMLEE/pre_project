@@ -2,7 +2,6 @@ import { Home as HomeIcon, MapPin, User, BarChart3 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { WeatherWidget } from './WeatherWidget';
 import { NearbyMap } from './NearbyMap';
-import { RecentRecords } from './RecentRecords';
 import { RecommendedCourses } from './RecommendedCourses';
 import { Button } from '../ui/button';
 import type { User as UserType, Course } from '../../types';
@@ -59,13 +58,10 @@ export function Home({ user, onStartRunning, onCourseClick, onNavigate, courses 
         </Button>
 
         {/* Recommended Courses - AI Pattern Analysis */}
-        <RecommendedCourses courses={courses} onCourseClick={onCourseClick} />
+        <RecommendedCourses courses={courses} onStartRunning={onStartRunning} />
 
         {/* Nearby Map */}
         <NearbyMap />
-
-        {/* Recent Records */}
-        <RecentRecords />
       </div>
 
       {/* Bottom Navigation */}

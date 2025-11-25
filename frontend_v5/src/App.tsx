@@ -16,7 +16,7 @@ import { ProfileSetup } from './components/auth/ProfileSetup';
 import type { User, Run, Course } from './types';
 import { fetchCourses, fetchPlaces, convertToCourse, convertToPlace } from './services/api';
 
-type Screen = 
+type Screen =
   | 'onboardingLogo'
   | 'onboarding'
   | 'login'
@@ -184,7 +184,7 @@ export default function App() {
       )}
       
       {currentScreen === 'home' && user && (
-        <Home 
+        <Home
           user={user}
           onStartRunning={handleStartRunning}
           onCourseClick={handleCourseSelect}
@@ -204,15 +204,15 @@ export default function App() {
           togglePlaceFavorite={togglePlaceFavorite}
         />
       )}
-      
+
       {currentScreen === 'courseDetail' && selectedCourse && (
-        <CourseDetail 
+        <CourseDetail
           course={selectedCourse}
           onStartRunning={handleStartRunning}
           onBack={() => setCurrentScreen('course')}
         />
       )}
-      
+
       {currentScreen === 'running' && (
         <Running 
           course={selectedCourse}

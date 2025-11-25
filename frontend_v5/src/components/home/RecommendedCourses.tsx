@@ -7,10 +7,10 @@ import { fetchRecommendedCourses, convertToCourse } from '../../services/api';
 
 type RecommendedCoursesProps = {
   courses: Course[];
-  onCourseClick: (course: Course) => void;
+  onStartRunning: (course: Course) => void;
 };
 
-export function RecommendedCourses({ courses, onCourseClick }: RecommendedCoursesProps) {
+export function RecommendedCourses({ courses, onStartRunning }: RecommendedCoursesProps) {
   const [showAllRecommended, setShowAllRecommended] = useState(false);
   const [recommendedCourses, setRecommendedCourses] = useState<Course[]>([]);
   const [allRecommendedCourses, setAllRecommendedCourses] = useState<Course[]>([]);
@@ -99,7 +99,7 @@ export function RecommendedCourses({ courses, onCourseClick }: RecommendedCourse
               recommendedCourses.map((course) => (
                 <div
                   key={course.id}
-                  onClick={() => onCourseClick(course)}
+                  onClick={() => onStartRunning(course)}
                   className="bg-white rounded-2xl p-4 shadow-sm hover:shadow-md transition-all cursor-pointer"
                 >
                   <div className="flex items-start justify-between mb-2">
@@ -171,7 +171,7 @@ export function RecommendedCourses({ courses, onCourseClick }: RecommendedCourse
                 key={course.id}
                 onClick={() => {
                   setShowAllRecommended(false);
-                  onCourseClick(course);
+                  onStartRunning(course);
                 }}
                 className="bg-gray-50 rounded-xl p-4 hover:bg-gray-100 transition-colors cursor-pointer"
               >
