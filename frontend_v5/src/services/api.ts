@@ -219,6 +219,65 @@ export async function fetchRecommendedCourses(userId: number = 1, k: number = 5)
   }
 }
 
+// 코스별 칼로리 조회
+export interface CalorieInfoResponse {
+  success: boolean;
+  user_id: number;
+  user_info: {
+    name: string;
+    gender: string;
+    age: number;
+    height_cm: number;
+    weight_kg: number;
+  };
+  course_info: {
+    course_name: string;
+    distance_km: number;
+    estimated_time_min: number;
+    difficulty: string;
+  };
+  calorie_info: {
+    predicted_calories: number;
+    calorie_per_km: number;
+    unit: string;
+  };
+}
+
+export async function fetchCourseCalories(
+  userId: number,
+  courseIndex: number
+): Promise<number | null> {
+  try {
+    console.log('칼로리 조회 요청:', `${API_BASE_URL}/api/course-calorie-info`, { userId, courseIndex });
+    const response = await fetch(
+      `${API_BASE_URL}/api/course-calorie-info?user_id=${userId}&course_index=${courseIndex}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+        mode: 'cors',
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`API 에러: ${response.status}`);
+    }
+    const data: CalorieInfoResponse = await response.json();
+    console.log(
+      '칼로리 조회 성공:',
+      data.course_info.course_name,
+      data.calorie_info.predicted_calories,
+      'kcal'
+    );
+    return data.calorie_info.predicted_calories;
+  } catch (error) {
+    console.error('칼로리 조회 실패:', error);
+    return null;
+  }
+}
+
 // 러닝 기록 저장
 export interface RunningRecordRequest {
   user_id: number;

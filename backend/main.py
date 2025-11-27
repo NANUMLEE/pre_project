@@ -20,6 +20,8 @@ from typing import Optional
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
 import openrouteservice
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 # 환경 변수 로드
 load_dotenv()
@@ -127,6 +129,13 @@ def ors_distance(lat1, lon1, lat2, lon2):
         import traceback
         traceback.print_exc()
         return None
+
+
+def calculate_course_distance(course_row, user_lat, user_lon):
+    """단일 코스 거리 계산 (병렬 처리용)"""
+    start_lat = course_row.get("start_lat", 0)
+    start_lng = course_row.get("start_lng", 0)
+    return ors_distance(user_lat, user_lon, start_lat, start_lng)
 
 
 def recommend_location_based_courses(user_id, user_lat, user_lon, top_k=5):
@@ -567,6 +576,9 @@ def weather_today():
 # # 1) 러닝 코스 데이터 제공
 @app.get("/api/courses")
 def get_courses():
+    """
+    러닝 코스 데이터 제공
+    """
     return {"courses": COURSES}
 
 
@@ -1093,6 +1105,111 @@ def get_nearby_running_courses(user_id: int = 1, user_lat: float = 37.4979, user
             "error": str(e),
             "message": "주변 러닝 코스 추천에 실패했습니다"
         }
+
+
+# ================================
+#     코스별 칼로리 조회 API
+# ================================
+
+@app.get("/api/course-calorie-info")
+def get_course_calorie_info(user_id: int, course_name: str = None, course_index: int = None):
+    """
+    사용자가 특정 코스에서 소모할 칼로리 조회
+
+    파라미터:
+    - user_id: 사용자 ID (필수)
+    - course_name: 코스명 (course_index 없으면 필수)
+    - course_index: 코스 인덱스 (course_name 없으면 필수)
+
+    사용 예시:
+    
+    - /api/course-calorie-info?user_id=1&course_name=한강공원
+    - /api/course-calorie-info?user_id=1&course_index=0
+    """
+    try:
+        # 사용자 정보 조회
+        user = get_user_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail=f"사용자 {user_id}를 찾을 수 없습니다")
+
+        # 사용자 정보 추출 및 변환
+        user_gender_raw = user.get("gender")
+        # DB의 'M', 'F', 'O' → 모델이 기대하는 'Male', 'Female'로 변환
+        gender_map = {'M': 'Male', 'F': 'Female', 'O': 'Male'}
+        user_gender = gender_map.get(user_gender_raw, 'Male') if user_gender_raw else 'Male'
+
+        user_age = user.get("age") or 35
+        user_height_cm = user.get("height_cm") or 170
+        user_weight_kg = user.get("weight_kg") or 70
+
+        # 코스 찾기
+        selected_course = None
+
+        if course_index is not None and 0 <= course_index < len(COURSES):
+            # 인덱스로 찾기
+            selected_course = COURSES[course_index]
+        elif course_name:
+            # 코스명으로 찾기
+            for course in COURSES:
+                if course.get("러닝코스 명") == course_name:
+                    selected_course = course
+                    break
+
+        if not selected_course:
+            raise HTTPException(status_code=404, detail="해당 코스를 찾을 수 없습니다")
+
+        # 거리 파싱
+        distance_raw = selected_course.get("거리", "5km")
+        if isinstance(distance_raw, str):
+            distance_km = float(distance_raw.strip().replace('km', '').replace('Km', '').strip())
+        else:
+            distance_km = float(distance_raw) if distance_raw else 5.0
+
+        # 러닝 시간 추정 (평균 페이스 6분/km 기준)
+        running_time_min = distance_km * 6.0
+
+        # 칼로리 예측
+        from calorie_prediction_model import predict_calories
+
+        predicted_calories = predict_calories(
+            user_id, user_gender, user_age, user_height_cm, user_weight_kg,
+            running_time_min, distance_km
+        )
+
+        # predicted_calories가 None일 경우 처리
+        if predicted_calories is None:
+            raise HTTPException(status_code=500, detail="칼로리 예측에 실패했습니다. 사용자 정보를 확인해주세요.")
+
+        return {
+            "success": True,
+            "user_id": user_id,
+            "user_info": {
+                "name": user.get("name"),
+                "gender": user_gender,
+                "age": user_age,
+                "height_cm": user_height_cm,
+                "weight_kg": user_weight_kg
+            },
+            "course_info": {
+                "course_name": selected_course.get("러닝코스 명"),
+                "distance_km": distance_km,
+                "estimated_time_min": round(running_time_min, 2),
+                "difficulty": selected_course.get("난이도", "정보없음")
+            },
+            "calorie_info": {
+                "predicted_calories": predicted_calories,
+                "calorie_per_km": round(predicted_calories / distance_km, 2) if distance_km > 0 else 0,
+                "unit": "kcal"
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ 칼로리 조회 에러: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"칼로리 조회 실패: {str(e)}")
 
 
 @app.get("/")

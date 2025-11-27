@@ -27,15 +27,18 @@ interface NearbyLocation {
   courseEndLng?: number;
 }
 
-export function NearbyMap() {
+type NearbyMapProps = {
+  nearbyLocations: NearbyLocation[];
+  setNearbyLocations: (locations: NearbyLocation[]) => void;
+};
+
+export function NearbyMap({ nearbyLocations, setNearbyLocations }: NearbyMapProps) {
   const [clientId] = useState(() => generateClientId());
   // localStorage에서 userId 읽기 (로그인 시 저장됨)
   const [userId] = useState(() => localStorage.getItem('userId') || '1');
   const [myPosition, setMyPosition] = useState<{ lat: number; lng: number } | null>(null);
   const [nearbyUsers, setNearbyUsers] = useState<any[]>([]);
-  const [nearbyLocations, setNearbyLocations] = useState<NearbyLocation[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [hasLoadedCourses, setHasLoadedCourses] = useState(false);
 
   const { otherUsers, isConnected } = useWebSocket(
     clientId,
@@ -46,20 +49,13 @@ export function NearbyMap() {
   // userId 확인 로그
   console.log('📍 NearbyMap - userId:', userId, 'clientId:', clientId);
 
-  // userId 변경 시 (로그인/회원가입) 초기화
-  useEffect(() => {
-    setHasLoadedCourses(false);
-    console.log('🔄 userId 변경됨, 코스 로드 상태 초기화');
-  }, [userId]);
-
   // GPS 위치 변경 시 거리 재계산 (실시간 근처 러너만)
   const handlePositionChange = (position: { lat: number; lng: number }) => {
     setMyPosition(position);
-    // 첫 위치 감지 시에만 코스 로드 (로그인 직후)
-    if (userId && !hasLoadedCourses) {
+    // 첫 위치 감지 시에만 코스 로드 (nearbyLocations이 비어있을 때만)
+    if (userId && nearbyLocations.length === 0) {
       console.log('🔄 첫 위치 감지됨, 주변 코스 API 호출');
       fetchNearbyRunningCourses(position.lat, position.lng);
-      setHasLoadedCourses(true);
     }
   };
 

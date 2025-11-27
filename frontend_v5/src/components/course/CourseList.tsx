@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Home, MapPin, BarChart3, User, Star, MapPinned } from 'lucide-react';
 import { Button } from '../ui/button';
 import {
@@ -39,6 +39,12 @@ export function CourseList({ onCourseSelect, onNavigate, onStartRunning, courses
   const [userPosition, setUserPosition] = useState<{ lat: number; lng: number } | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
+  // 거리 임계값 + Throttling용 refs
+  const lastPositionRef = useRef<{ lat: number; lng: number } | null>(null);
+  const lastUpdateTimeRef = useRef<number>(0);
+  const DISTANCE_THRESHOLD_KM = 0.05; // 50m
+  const THROTTLE_MS = 2000; // 2초
+
   const favoriteCourses = coursesData.filter(c => c.isFavorite);
   const favoritePlaces = placesData.filter(p => p.isFavorite);
 
@@ -63,8 +69,34 @@ export function CourseList({ onCourseSelect, onNavigate, onStartRunning, courses
     ];
   };
 
-  // GPS 위치 업데이트 핸들러
+  // GPS 위치 업데이트 핸들러 (거리 임계값 + Throttling)
   const handlePositionChange = (position: { lat: number; lng: number }) => {
+    const now = Date.now();
+    const timeSinceLastUpdate = now - lastUpdateTimeRef.current;
+
+    // 마지막 업데이트 이후 2초 이상 경과했는지 확인
+    if (timeSinceLastUpdate < THROTTLE_MS) {
+      return; // Throttling: 2초 이내면 업데이트 무시
+    }
+
+    // 이전 위치와의 거리 계산
+    if (lastPositionRef.current) {
+      const distance = calculateDistance(
+        lastPositionRef.current.lat,
+        lastPositionRef.current.lng,
+        position.lat,
+        position.lng
+      );
+
+      // 50m 이상 이동했는지 확인
+      if (distance < DISTANCE_THRESHOLD_KM) {
+        return; // 거리 임계값 미만이면 업데이트 무시
+      }
+    }
+
+    // 조건 만족: 위치 업데이트
+    lastPositionRef.current = position;
+    lastUpdateTimeRef.current = now;
     setUserPosition(position);
   };
 
@@ -187,7 +219,8 @@ export function CourseList({ onCourseSelect, onNavigate, onStartRunning, courses
                     {'difficultyString' in course && course.difficultyString ? course.difficultyString : DIFFICULTY_LABELS[course.difficulty]}
                   </span>
                   <span className="text-sm text-[#787878]">{'distanceString' in course ? course.distanceString : `${course.distance}km`}</span>
-                  <span className="text-sm text-[#787878]">•</span>
+                </div>
+                <div className="flex items-center gap-2 mb-2">
                   <span className="text-sm font-semibold text-[#f89305] bg-orange-50 px-2 py-1 rounded-lg">예상 칼로리 {course.expectedCalories || 250}kcal</span>
                 </div>
                 <div className="flex items-center gap-2 mb-2">
@@ -284,7 +317,8 @@ export function CourseList({ onCourseSelect, onNavigate, onStartRunning, courses
                         {'difficultyString' in course && course.difficultyString ? course.difficultyString : DIFFICULTY_LABELS[course.difficulty]}
                       </span>
                       <span className="text-sm text-[#787878]">{'distanceString' in course ? course.distanceString : `${course.distance}km`}</span>
-                      <span className="text-sm text-[#787878]">•</span>
+                    </div>
+                    <div className="flex items-center gap-2 mb-2">
                       <span className="text-sm font-semibold text-[#f89305] bg-orange-50 px-2 py-1 rounded-lg">예상 칼로리 {course.expectedCalories || 250}kcal</span>
                     </div>
                     <div className="flex items-center gap-2 mb-2">

@@ -14,7 +14,7 @@ import { Community } from './components/community/Community';
 import { MyPage } from './components/mypage/MyPage';
 import { ProfileSetup } from './components/auth/ProfileSetup';
 import type { User, Run, Course } from './types';
-import { fetchCourses, fetchPlaces, convertToCourse, convertToPlace } from './services/api';
+import { fetchCourses, fetchPlaces, convertToCourse, convertToPlace, fetchCourseCalories } from './services/api';
 
 type Screen =
   | 'onboardingLogo'
@@ -49,6 +49,20 @@ export default function App() {
   const [coursesData, setCoursesData] = useState<Course[]>([]);
   const [placesData, setPlacesData] = useState<Place[]>([]);
 
+  // 주변 러닝 코스 state (홈 화면에서 특정 시점에만 로드되고 고정됨)
+  interface NearbyLocation {
+    id: string;
+    name: string;
+    runners: number;
+    distance: string;
+    distanceFromMe: string;
+    courseStartLat?: number;
+    courseStartLng?: number;
+    courseEndLat?: number;
+    courseEndLng?: number;
+  }
+  const [nearbyLocations, setNearbyLocations] = useState<NearbyLocation[]>([]);
+
   // API 데이터 로드
   useEffect(() => {
     const loadData = async () => {
@@ -72,6 +86,35 @@ export default function App() {
 
     loadData();
   }, []);
+
+  // 사용자 로그인 후 칼로리 정보 로드
+  useEffect(() => {
+    const loadCaloriesForCourses = async () => {
+      if (user && user.id && coursesData.length > 0) {
+        try {
+          const userId = parseInt(user.id, 10);
+          console.log('칼로리 정보 로드 시작:', userId, 'user_id, 코스 개수:', coursesData.length);
+
+          const coursesWithCalories = await Promise.all(
+            coursesData.map(async (course, index) => {
+              const calories = await fetchCourseCalories(userId, index);
+              return {
+                ...course,
+                expectedCalories: calories || 250 // 기본값 250kcal
+              };
+            })
+          );
+
+          setCoursesData(coursesWithCalories);
+          console.log('칼로리 정보 로드 완료');
+        } catch (error) {
+          console.error('칼로리 정보 로드 실패:', error);
+        }
+      }
+    };
+
+    loadCaloriesForCourses();
+  }, [user]);
 
   // 온보딩 완료 시
   const handleOnboardingComplete = () => {
@@ -200,6 +243,8 @@ export default function App() {
           onCourseClick={handleCourseSelect}
           onNavigate={handleNavigation}
           courses={coursesData}
+          nearbyLocations={nearbyLocations}
+          setNearbyLocations={setNearbyLocations}
         />
       )}
       

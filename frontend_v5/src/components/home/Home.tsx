@@ -6,15 +6,29 @@ import { RecommendedCourses } from './RecommendedCourses';
 import { Button } from '../ui/button';
 import type { User as UserType, Course } from '../../types';
 
+interface NearbyLocation {
+  id: string;
+  name: string;
+  runners: number;
+  distance: string;
+  distanceFromMe: string;
+  courseStartLat?: number;
+  courseStartLng?: number;
+  courseEndLat?: number;
+  courseEndLng?: number;
+}
+
 type HomeProps = {
   user: UserType;
   onStartRunning: (course?: Course) => void;
   onCourseClick: (course: Course) => void;
   onNavigate: (screen: 'home' | 'course' | 'community' | 'mypage') => void;
   courses: Course[];
+  nearbyLocations: NearbyLocation[];
+  setNearbyLocations: (locations: NearbyLocation[]) => void;
 };
 
-export function Home({ user, onStartRunning, onCourseClick, onNavigate, courses }: HomeProps) {
+export function Home({ user, onStartRunning, onCourseClick, onNavigate, courses, nearbyLocations, setNearbyLocations }: HomeProps) {
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       {/* Header */}
@@ -61,7 +75,7 @@ export function Home({ user, onStartRunning, onCourseClick, onNavigate, courses 
         <RecommendedCourses courses={courses} onStartRunning={onStartRunning} />
 
         {/* Nearby Map */}
-        <NearbyMap />
+        <NearbyMap nearbyLocations={nearbyLocations} setNearbyLocations={setNearbyLocations} />
       </div>
 
       {/* Bottom Navigation */}
