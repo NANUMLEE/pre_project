@@ -140,7 +140,7 @@ export function convertToCourse(csvData: CourseData, index: number): import('../
   // 거리 파싱
   const distanceNumber = parseFloat(csvData['거리']?.toString() || '0') || 0;
   const distance = distanceNumber;
-  const distanceString = csvData['거리']?.toString() || '';
+  const distanceString = `${csvData['거리']?.toString() || '0'}km`;
 
   // 난이도 파싱 (CSV 데이터)
   const difficultyString = csvData['난이도']?.toString() || '';
@@ -198,7 +198,7 @@ export function convertToPlace(csvData: PlaceData, index: number): any {
 export async function fetchRecommendedCourses(userId: number = 1, k: number = 5): Promise<CourseData[]> {
   try {
     console.log('추천 코스 요청:', `${API_BASE_URL}/api/recommended-courses`, { userId, k });
-    const response = await fetch(`${API_BASE_URL}/api/recommended-courses?user_id=${userId}&k=${k}`, {
+    const response = await fetch(`${API_BASE_URL}/api/recommended-courses?userId=${userId}&k=${k}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -216,5 +216,48 @@ export async function fetchRecommendedCourses(userId: number = 1, k: number = 5)
   } catch (error) {
     console.error('추천 코스 로딩 실패:', error);
     return [];
+  }
+}
+
+// 러닝 기록 저장
+export interface RunningRecordRequest {
+  user_id: number;
+  start_time: string;
+  end_time: string;
+  distance_km: number;
+  pace_km?: number;
+  calories_kcal?: number;
+  start_point?: string;
+  end_point?: string;
+  via1_point?: string;
+  via2_point?: string;
+  via3_point?: string;
+  route?: string;
+}
+
+export async function saveRunningRecord(record: RunningRecordRequest): Promise<any> {
+  try {
+    console.log('러닝 기록 저장 요청:', `${API_BASE_URL}/api/running-record`, record);
+    const response = await fetch(`${API_BASE_URL}/api/running-record`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
+      },
+      mode: 'cors',
+      body: JSON.stringify(record),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('서버 응답:', response.status, errorText);
+      throw new Error(`API 에러: ${response.status} - ${errorText}`);
+    }
+    const data = await response.json();
+    console.log('러닝 기록 저장 성공:', data.record_id);
+    return data;
+  } catch (error) {
+    console.error('러닝 기록 저장 실패:', error);
+    throw error;
   }
 }

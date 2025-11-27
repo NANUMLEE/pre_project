@@ -25,6 +25,7 @@ from datetime import datetime
 from typing import Set
 import json
 import uvicorn
+from sqlalchemy import create_engine, text
 
 # FastAPI 앱 생성
 app = FastAPI(title="GPS Location Sharing Server")
@@ -36,6 +37,34 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"]
 )
+
+# ================================
+# MySQL DB 연결 설정
+# ================================
+DB_URL = "mysql+pymysql://root:12345@localhost/Users"
+engine = create_engine(DB_URL, echo=False)
+
+def get_user_name(user_id: str) -> str:
+    """user_id로 users 테이블에서 name 조회"""
+    try:
+        # user_id를 정수로 변환 (DB는 INT 타입)
+        user_id_int = int(user_id)
+        with engine.connect() as conn:
+            query = text("SELECT name FROM users WHERE user_id = :user_id")
+            result = conn.execute(query, {"user_id": user_id_int}).fetchone()
+            if result:
+                name = result[0]
+                print(f"✅ name 조회 성공: user_id={user_id_int} → name={name}")
+                return name
+            else:
+                print(f"⚠️ name을 찾을 수 없음: user_id={user_id_int}")
+                return user_id  # name이 없으면 user_id 반환
+    except ValueError:
+        print(f"❌ user_id 타입 변환 실패: {user_id} (정수가 아님)")
+        return user_id
+    except Exception as e:
+        print(f"❌ 사용자 name 조회 실패 ({user_id}): {str(e)}")
+        return user_id  # 에러 시 user_id 반환
 
 
 class ConnectionManager:
@@ -128,26 +157,37 @@ class ConnectionManager:
             longitude: 경도
             websocket: WebSocket 연결 객체
         """
+        print(f"\n=== add_location 호출 ===")
+        print(f"user_id (타입: {type(user_id).__name__}): {user_id}")
+
         # 같은 userId의 이전 websocket 연결이 있는지 확인
         # (같은 사용자가 여러 탭/기기에서 접속한 경우)
         for old_ws, old_user_id in list(self.client_to_user.items()):
             if old_user_id == user_id and old_ws != websocket:
                 print(f"⚠️  같은 userId '{user_id}'의 이전 연결 제거 (새로운 연결로 교체)")
                 self.active_connections.discard(old_ws)
+                self.client_count -= 1
                 try:
                     old_ws.close()
                 except:
                     pass
                 self.client_to_user.pop(old_ws, None)
 
+        # userId로부터 사용자 name 조회
+        user_name = get_user_name(user_id)
+        print(f"조회된 name: {user_name} (타입: {type(user_name).__name__})")
+
         # userId 기반으로 사용자 정보 업데이트
         self.user_locations[user_id] = {
             "id": user_id,  # userId를 id로 사용
             "userId": user_id,
+            "name": user_name,  # name 추가
             "latitude": latitude,
             "longitude": longitude,
             "timestamp": datetime.now().isoformat()
         }
+        print(f"저장된 위치 데이터: {self.user_locations[user_id]}")
+        print(f"=== add_location 끝 ===\n")
 
         # websocket -> userId 매핑 저장
         self.client_to_user[websocket] = user_id
@@ -211,7 +251,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     # userId 기반으로 위치 정보 저장
                     manager.add_location(user_id, client_id, latitude, longitude, websocket)
 
-                    print(f"📍 userId: '{user_id}' (clientId: '{client_id}') - 위치: ({latitude:.4f}, {longitude:.4f})")
+                    # print(f"📍 userId: '{user_id}' (clientId: '{client_id}') - 위치: ({latitude:.4f}, {longitude:.4f})")
 
                     # 모든 클라이언트에게 현재 모든 사용자 위치 전송 (userId 기반)
                     await manager.broadcast({

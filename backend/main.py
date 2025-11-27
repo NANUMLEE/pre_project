@@ -4,9 +4,13 @@ from datetime import datetime
 from dotenv import load_dotenv
 import os
 import csv
-from fastapi import FastAPI
+import pandas as pd
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+from sqlalchemy import create_engine, text
+from pydantic import BaseModel
+from typing import Optional
 
 # 환경 변수 로드
 load_dotenv()
@@ -14,6 +18,20 @@ SERVICE_KEY = os.getenv("SERVICE_KEY")
 
 if not SERVICE_KEY:
     raise ValueError("❌ SERVICE_KEY가 .env에서 로드되지 않았습니다.")
+
+# ================================
+# MySQL DB 연결 설정
+# ================================
+DB_URL = "mysql+pymysql://root:12345@localhost/Users"
+engine = create_engine(DB_URL, echo=False)
+
+# 연결 테스트
+try:
+    with engine.connect() as conn:
+        result = conn.execute(text("SELECT 1"))
+        print("✅ Users DB 연결 성공!")
+except Exception as e:
+    print(f"❌ DB 연결 실패: {str(e)}")
 
 
 # ✅ CSV 파일 읽는 함수
@@ -52,6 +70,9 @@ def load_csv(filepath):
                         "lng": lng
                     })
 
+            # ⭐ 난이도 필드 추가
+            row["difficulty"] = row.get("난이도")  # 또는 difficulty_level 등 이름 변경 가능
+   
             data.append(row)
 
     return data
@@ -94,6 +115,202 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"]
 )
+
+# ================================
+# Pydantic 데이터 모델
+# ================================
+class UserLogin(BaseModel):
+    """로그인 요청 데이터"""
+    email: str
+    password: str = None  # 선택사항
+
+class UserSignUp(BaseModel):
+    """회원가입 요청 데이터"""
+    email: str
+    name: str
+    password: str = None
+
+class UserInfo(BaseModel):
+    """사용자 정보"""
+    user_id: int
+    name: str
+    email: str
+    gender: str = None
+    age: int = None
+    height_cm: int = None
+    weight_kg: int = None
+
+class UserProfileUpdate(BaseModel):
+    """사용자 프로필 업데이트"""
+    user_id: int
+    age: int
+    gender: str
+    height_cm: int
+    weight_kg: int
+
+class RunningRecordCreate(BaseModel):
+    """러닝 기록 저장"""
+    user_id: int
+    start_time: str  # datetime string format: "YYYY-MM-DD HH:MM:SS"
+    end_time: str    # datetime string format: "YYYY-MM-DD HH:MM:SS"
+    distance_km: float
+    pace_km: Optional[float] = None
+    calories_kcal: Optional[float] = None
+    start_point: Optional[str] = None
+    end_point: Optional[str] = None
+    via1_point: Optional[str] = None
+    via2_point: Optional[str] = None
+    via3_point: Optional[str] = None
+    route: Optional[str] = None  # JSON string for route data
+
+# ================================
+# Users DB 조회 함수
+# ================================
+def get_user_by_email(email: str):
+    """이메일로 사용자 조회"""
+    try:
+        with engine.begin() as conn:
+            query = text("SELECT user_id, name, email, gender, age, height_cm, weight_kg FROM users WHERE email = :email")
+            result = conn.execute(query, {"email": email}).fetchone()
+            if result:
+                return {
+                    "user_id": result[0],
+                    "name": result[1],
+                    "email": result[2],
+                    "gender": result[3],
+                    "age": result[4],
+                    "height_cm": result[5],
+                    "weight_kg": result[6]
+                }
+            return None
+    except Exception as e:
+        print(f"❌ DB 조회 실패: {str(e)}")
+        return None
+
+def get_user_by_id(user_id: int):
+    """사용자 ID로 사용자 조회"""
+    try:
+        with engine.begin() as conn:
+            query = text("SELECT user_id, name, email, gender, age, height_cm, weight_kg FROM users WHERE user_id = :user_id")
+            result = conn.execute(query, {"user_id": user_id}).fetchone()
+            if result:
+                return {
+                    "user_id": result[0],
+                    "name": result[1],
+                    "email": result[2],
+                    "gender": result[3],
+                    "age": result[4],
+                    "height_cm": result[5],
+                    "weight_kg": result[6]
+                }
+            return None
+    except Exception as e:
+        print(f"❌ DB 조회 실패: {str(e)}")
+        return None
+
+def create_user(email: str, name: str):
+    """새로운 사용자 생성"""
+    try:
+        with engine.begin() as conn:
+            query = text("INSERT INTO users (email, name) VALUES (:email, :name)")
+            conn.execute(query, {"email": email, "name": name})
+            # 같은 트랜잭션 내에서 생성된 사용자 조회
+            select_query = text("SELECT user_id, name, email, gender, age, height_cm, weight_kg FROM users WHERE email = :email")
+            result = conn.execute(select_query, {"email": email}).fetchone()
+            if result:
+                user = {
+                    "user_id": result[0],
+                    "name": result[1],
+                    "email": result[2],
+                    "gender": result[3],
+                    "age": result[4],
+                    "height_cm": result[5],
+                    "weight_kg": result[6]
+                }
+                print(f"✅ 사용자 생성 성공: {email}")
+                return user
+            else:
+                print(f"⚠️ 사용자 생성 후 조회 실패: {email}")
+                return None
+    except Exception as e:
+        print(f"❌ 사용자 생성 실패: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+def save_running_record(record_data: RunningRecordCreate):
+    """러닝 기록을 DB에 저장"""
+    try:
+        # record_id 생성 (rec001, rec002, ... 형식)
+        with engine.begin() as conn:
+            # 최근 record_id 조회
+            max_id_query = text("SELECT MAX(CAST(SUBSTR(record_id, 4) AS UNSIGNED)) FROM running_record")
+            max_id_result = conn.execute(max_id_query).fetchone()
+            max_id = max_id_result[0] if max_id_result and max_id_result[0] else 0
+            new_id = max_id + 1
+            record_id = f"rec{str(new_id).zfill(3)}"  # rec001, rec002, ...
+
+        with engine.begin() as conn:
+            query = text("""
+                INSERT INTO running_record
+                (record_id, user_id, start_time, end_time, distance_km, pace_km, calories_kcal,
+                 start_point, end_point, via1_point, via2_point, via3_point, route, duration_time)
+                VALUES
+                (:record_id, :user_id, :start_time, :end_time, :distance_km, :pace_km, :calories_kcal,
+                 :start_point, :end_point, :via1_point, :via2_point, :via3_point, :route,
+                 SEC_TO_TIME(TIMESTAMPDIFF(SECOND, :start_time, :end_time)))
+            """)
+
+            result = conn.execute(query, {
+                "record_id": record_id,
+                "user_id": record_data.user_id,
+                "start_time": record_data.start_time,
+                "end_time": record_data.end_time,
+                "distance_km": record_data.distance_km,
+                "pace_km": record_data.pace_km,
+                "calories_kcal": record_data.calories_kcal,
+                "start_point": record_data.start_point,
+                "end_point": record_data.end_point,
+                "via1_point": record_data.via1_point,
+                "via2_point": record_data.via2_point,
+                "via3_point": record_data.via3_point,
+                "route": record_data.route
+            })
+
+            print(f"✅ 러닝 기록 저장 성공: record_id={record_id}, user_id={record_data.user_id}")
+            return {
+                "success": True,
+                "record_id": record_id,
+                "message": "러닝 기록이 저장되었습니다"
+            }
+    except Exception as e:
+        print(f"❌ 러닝 기록 저장 실패: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+def get_user_avg_distance(user_id: int):
+    """사용자의 평균 러닝 거리 조회"""
+    try:
+        with engine.begin() as conn:
+            query = text("""
+                SELECT AVG(distance_km) as avg_distance, COUNT(*) as total_runs
+                FROM running_record
+                WHERE user_id = :user_id
+            """)
+            result = conn.execute(query, {"user_id": user_id}).fetchone()
+            if result and result[0]:
+                return {
+                    "avg_distance": float(result[0]),
+                    "total_runs": result[1]
+                }
+            return {"avg_distance": 5.0, "total_runs": 0}  # 기본값
+    except Exception as e:
+        print(f"❌ 평균 거리 조회 실패: {str(e)}")
+        return {"avg_distance": 5.0, "total_runs": 0}
 
 def get_weather():
     now = datetime.now()
@@ -188,6 +405,500 @@ def get_courses():
 @app.get("/api/places")
 def get_places():
     return {"places": PLACES}
+
+
+# ================================
+#     사용자 인증 API
+# ================================
+
+@app.post("/api/login")
+def login(request: UserLogin):
+    """
+    사용자 로그인 (이메일 기반)
+    """
+    try:
+        user = get_user_by_email(request.email)
+        if not user:
+            raise HTTPException(status_code=401, detail="사용자를 찾을 수 없습니다")
+
+        # 사용자의 러닝 기록 조회
+        user_stats = get_user_avg_distance(user["user_id"])
+
+        return {
+            "success": True,
+            "user_id": user["user_id"],
+            "name": user["name"],
+            "email": user["email"],
+            "nickname": user["name"],
+            "profileImage": None,
+            "totalRuns": user_stats["total_runs"],
+            "totalDistance": user_stats["avg_distance"] * user_stats["total_runs"] if user_stats["total_runs"] > 0 else 0,
+            "gender": user["gender"],
+            "age": user["age"],
+            "height": user["height_cm"],
+            "weight": user["weight_kg"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ 로그인 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"로그인 실패: {str(e)}")
+
+@app.post("/api/register")
+def register(request: UserSignUp):
+    """
+    사용자 회원가입 (이메일, 이름 기반)
+    """
+    try:
+        # 기존 사용자 확인
+        existing_user = get_user_by_email(request.email)
+        if existing_user:
+            raise HTTPException(status_code=400, detail="이미 존재하는 이메일입니다")
+
+        # 새로운 사용자 생성
+        user = create_user(request.email, request.name)
+        if not user:
+            raise HTTPException(status_code=500, detail="사용자 생성 실패")
+
+        return {
+            "success": True,
+            "user_id": user["user_id"],
+            "name": user["name"],
+            "email": user["email"],
+            "nickname": user["name"],
+            "profileImage": None,
+            "totalRuns": 0,
+            "totalDistance": 0
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ 회원가입 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"회원가입 실패: {str(e)}")
+
+@app.get("/api/user/{user_id}")
+def get_user(user_id: int):
+    """
+    사용자 정보 조회
+    """
+    try:
+        user = get_user_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다")
+
+        # 사용자의 러닝 기록 조회
+        user_stats = get_user_avg_distance(user_id)
+
+        return {
+            "success": True,
+            "user_id": user["user_id"],
+            "name": user["name"],
+            "email": user["email"],
+            "nickname": user["name"],
+            "totalRuns": user_stats["total_runs"],
+            "totalDistance": user_stats["avg_distance"] * user_stats["total_runs"] if user_stats["total_runs"] > 0 else 0,
+            "gender": user["gender"],
+            "age": user["age"],
+            "height": user["height_cm"],
+            "weight": user["weight_kg"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ 사용자 조회 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"사용자 조회 실패: {str(e)}")
+
+@app.get("/api/user/records/{email}")
+def get_user_running_records(email: str):
+    """
+    사용자의 모든 러닝 기록 조회 (email 기반)
+    - 누적 거리: SUM(distance_km)
+    - 총 운동시간: SUM(TIMESTAMPDIFF(SECOND, start_time, end_time))
+    - 평균 페이스: AVG(pace_km)
+    - 평균 거리: AVG(distance_km)
+    """
+    try:
+        with engine.begin() as conn:
+            # 사용자 ID 조회
+            user_query = text("SELECT user_id FROM users WHERE email = :email")
+            user_result = conn.execute(user_query, {"email": email}).fetchone()
+
+            if not user_result:
+                raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다")
+
+            user_id = user_result[0]
+
+            # 통계 계산을 위한 쿼리
+            stats_query = text("""
+                SELECT
+                    COUNT(*) as total_runs,
+                    SUM(distance_km) as total_distance,
+                    AVG(distance_km) as avg_distance,
+                    AVG(pace_km) as avg_pace,
+                    SUM(TIMESTAMPDIFF(SECOND, start_time, end_time)) as total_duration_seconds
+                FROM running_record
+                WHERE user_id = :user_id
+            """)
+            stats_result = conn.execute(stats_query, {"user_id": user_id}).fetchone()
+
+            total_runs = stats_result[0] or 0
+            total_distance = float(stats_result[1]) if stats_result[1] else 0.0
+            avg_distance = float(stats_result[2]) if stats_result[2] else 0.0
+            avg_pace = float(stats_result[3]) if stats_result[3] else 0.0
+            total_duration_seconds = stats_result[4] or 0
+
+            print(f"📊 사용자 {email}의 러닝 통계:")
+            print(f"   - 총 러닝 횟수: {total_runs}")
+            print(f"   - 누적 거리: {total_distance} km")
+            print(f"   - 평균 거리: {avg_distance} km")
+            print(f"   - 평균 페이스: {avg_pace} min/km")
+            print(f"   - 총 운동시간: {total_duration_seconds} 초")
+
+            # 러닝 기록 조회
+            records_query = text("""
+                SELECT
+                    record_id,
+                    start_time,
+                    end_time,
+                    distance_km,
+                    pace_km,
+                    TIMESTAMPDIFF(SECOND, start_time, end_time) as duration_seconds,
+                    calories_kcal
+                FROM running_record
+                WHERE user_id = :user_id
+                ORDER BY start_time DESC
+            """)
+            records = conn.execute(records_query, {"user_id": user_id}).fetchall()
+
+            return {
+                "success": True,
+                "email": email,
+                "user_id": user_id,
+                "totalDistance": round(total_distance, 2),
+                "totalDuration": int(total_duration_seconds),
+                "avgPace": round(avg_pace, 2),
+                "avgDistance": round(avg_distance, 2),
+                "totalRuns": total_runs,
+                "records": [
+                    {
+                        "id": r[0],
+                        "date": r[1].isoformat() if hasattr(r[1], 'isoformat') else str(r[1]),
+                        "distance": float(r[3]),
+                        "pace": float(r[4]) if r[4] else 0.0,
+                        "duration": int(r[5]) if r[5] else 0,
+                        "calories_kcal": float(r[6]) if r[6] else 0.0
+                    }
+                    for r in records
+                ]
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ 러닝 기록 조회 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"러닝 기록 조회 실패: {str(e)}")
+
+@app.post("/api/user/profile")
+def update_user_profile(request: UserProfileUpdate):
+    """
+    사용자 프로필 정보 업데이트
+    """
+    try:
+        user_id = request.user_id
+        age = request.age
+        gender = request.gender
+        height_cm = request.height_cm
+        weight_kg = request.weight_kg
+
+        print(f"📝 프로필 업데이트 요청: user_id={user_id}, age={age}, gender={gender}, height={height_cm}, weight={weight_kg}")
+
+        with engine.begin() as conn:
+            # 프로필 정보 업데이트
+            query = text("""
+                UPDATE users
+                SET age = :age, gender = :gender, height_cm = :height_cm, weight_kg = :weight_kg
+                WHERE user_id = :user_id
+            """)
+
+            result = conn.execute(query, {
+                "user_id": user_id,
+                "age": age,
+                "gender": gender,
+                "height_cm": height_cm,
+                "weight_kg": weight_kg
+            })
+
+            print(f"✅ 프로필 업데이트 완료: {result.rowcount}개 행 수정됨")
+
+        # 업데이트된 사용자 정보 조회
+        updated_user = get_user_by_id(user_id)
+
+        return {
+            "success": True,
+            "message": "프로필이 업데이트되었습니다",
+            "user": updated_user
+        }
+
+    except ValueError as e:
+        print(f"❌ 값 오류: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"잘못된 데이터 형식: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ 프로필 업데이트 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"프로필 업데이트 실패: {str(e)}")
+
+@app.post("/api/running-record")
+def create_running_record(request: RunningRecordCreate):
+    """
+    러닝 기록을 DB에 저장
+
+    요청 데이터:
+    {
+        "user_id": 1,
+        "start_time": "2025-11-25 10:30:00",
+        "end_time": "2025-11-25 11:00:00",
+        "distance_km": 5.2,
+        "pace_km": 5.77,
+        "calories_kcal": 312,
+        "start_point": "서울시 강남구",
+        "end_point": "서울시 강남구"
+    }
+    """
+    try:
+        print(f"📍 러닝 기록 저장 요청 수신")
+        print(f"   - user_id: {request.user_id} (타입: {type(request.user_id)})")
+        print(f"   - start_time: {request.start_time} (타입: {type(request.start_time)})")
+        print(f"   - end_time: {request.end_time} (타입: {type(request.end_time)})")
+        print(f"   - distance_km: {request.distance_km} (타입: {type(request.distance_km)})")
+        print(f"   - pace_km: {request.pace_km}")
+        print(f"   - calories_kcal: {request.calories_kcal}")
+
+        result = save_running_record(request)
+
+        if result["success"]:
+            return {
+                "success": True,
+                "record_id": result["record_id"],
+                "message": result["message"]
+            }
+        else:
+            raise HTTPException(status_code=500, detail=result["error"])
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ 러닝 기록 저장 실패: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"러닝 기록 저장 실패: {str(e)}")
+
+
+# ================================
+#     KNN 기반 맞춤형 추천 코스 API (Distance & Pace)
+# ================================
+
+def load_user_record(user_id: int):
+    """DB의 running_record 테이블에서 특정 사용자 기록 로드"""
+    try:
+        import pandas as pd
+        query = text("""
+            SELECT
+                distance_km as Distance,
+                pace_km as Running_time
+            FROM running_record
+            WHERE user_id = :user_id
+            ORDER BY start_time DESC
+            LIMIT 50
+        """)
+        with engine.begin() as conn:
+            result = conn.execute(query, {"user_id": user_id}).fetchall()
+
+        print(f"   [DB 쿼리] user_id={user_id}, 조회 결과: {len(result) if result else 0}개")
+
+        if not result:
+            print(f"   ⚠️ 쿼리 결과가 비어있음")
+            return None
+
+        # pandas DataFrame으로 변환
+        df = pd.DataFrame([{"Distance": r[0], "Running_time": r[1]} for r in result])
+        print(f"   ✅ DataFrame 생성 완료: {len(df)}행")
+        print(f"   Distance: {df['Distance'].values[:3]}")
+        print(f"   Running_time: {df['Running_time'].values[:3]}")
+        return df
+    except Exception as e:
+        print(f"   ❌ 사용자 기록 로드 실패: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def compute_user_features(df_user, n_recent=5):
+    """사용자의 거리와 페이스 특성 계산"""
+    try:
+        df_recent = df_user.head(n_recent)
+
+        user_avg_distance = df_recent["Distance"].mean()
+        # pace_km은 이미 분/km 단위
+        user_avg_pace = df_recent["Running_time"].mean()
+
+        return user_avg_distance, user_avg_pace
+    except Exception as e:
+        print(f"❌ 사용자 특성 계산 실패: {str(e)}")
+        return 5.0, 6.0  # 기본값
+
+
+def recommend_knn(user_avg_distance: float, user_avg_pace: float, courses: list, k: int = 5):
+    """KNN 알고리즘을 사용한 코스 추천"""
+    try:
+        import numpy as np
+        from sklearn.neighbors import NearestNeighbors
+
+        if not courses:
+            print(f"   ❌ 코스 데이터 없음")
+            return []
+
+        # 코스 벡터 생성 (거리, 페이스)
+        course_vectors = []
+        valid_courses = []
+
+        print(f"   📊 CSV 코스 데이터 분석:")
+        # 모든 코스 처리
+        for i, course in enumerate(courses):
+            try:
+                # 거리를 숫자로 변환 (숫자형 또는 문자형 모두 지원)
+                distance_raw = course.get("거리", 0)
+                if isinstance(distance_raw, str):
+                    # 문자형인 경우: 'km' 제거 후 변환
+                    distance_str = distance_raw.strip().replace('km', '').replace('Km', '').strip()
+                    distance = float(distance_str) if distance_str else 0
+                else:
+                    # 숫자형인 경우: 바로 변환
+                    distance = float(distance_raw) if distance_raw else 0
+
+                if distance > 0:
+                    course_vectors.append([distance, 6.0])
+                    valid_courses.append(course)
+
+                    # 처음 5개만 출력 (샘플)
+                    if i < 5:
+                        course_name = course.get("러닝코스 명", "Unknown")
+                        print(f"      {i+1}. {course_name}: {distance}km ✅")
+            except Exception as e:
+                # 처음 5개만 에러 출력
+                if i < 5:
+                    print(f"      ❌ 파싱 실패: {course.get('러닝코스 명', 'Unknown')} - {str(e)}")
+                continue
+
+        print(f"   ✅ 유효한 코스: {len(valid_courses)}개 (전체 {len(courses)}개 중)")
+
+        if not course_vectors:
+            print(f"   ❌ 유효한 코스 벡터 없음, 기본 추천으로 대체")
+            return courses[:k]
+
+        # 사용자 벡터
+        user_vec = np.array([[user_avg_distance, user_avg_pace]])
+        course_vec = np.array(course_vectors)
+
+        print(f"   🎯 사용자 벡터: distance={user_avg_distance:.2f}, pace={user_avg_pace:.2f}")
+        print(f"   🎯 코스 벡터 샘플 (첫 3개): {course_vec[:3]}")
+
+        # KNN 모델
+        knn = NearestNeighbors(
+            n_neighbors=min(k, len(course_vec)),
+            metric="euclidean"
+        )
+        knn.fit(course_vec)
+
+        # top-k 코스 찾기
+        distances, idx = knn.kneighbors(user_vec)
+
+        print(f"   📍 KNN 거리 (유사도):")
+        for i, (distance, course_idx) in enumerate(zip(distances[0], idx[0])):
+            recommended_course = valid_courses[course_idx]
+            print(f"      {i+1}. {recommended_course.get('러닝코스 명', 'Unknown')} (거리: {distance:.2f})")
+
+        recommended = [valid_courses[i] for i in idx[0]]
+        print(f"✅ KNN 추천 완료: {len(recommended)}개 코스")
+
+        return recommended
+    except ImportError:
+        print("⚠️ scikit-learn 미설치, 기본 추천으로 대체")
+        return courses[:k]
+    except Exception as e:
+        print(f"❌ KNN 추천 실패: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return courses[:k]
+
+
+@app.get("/api/recommended-courses")
+def get_recommended_courses(userId: int = 1, k: int = 5):
+    """
+    사용자별 맞춤 추천 코스 API (KNN 기반)
+    - 사용자의 거리와 페이스 기반 추천
+    """
+    try:
+        print(f"\n{'='*60}")
+        print(f"📍 추천 코스 요청: userId={userId}, k={k}")
+        print(f"{'='*60}")
+
+        # 1) 사용자 기록 로드
+        df_user = load_user_record(userId)
+
+        if df_user is not None:
+            print(f"✅ 사용자 기록 로드 성공: {len(df_user)}개 기록")
+            print(f"   Distance 샘플: {df_user['Distance'].head(3).values}")
+            print(f"   Running_time 샘플: {df_user['Running_time'].head(3).values}")
+        else:
+            print(f"❌ df_user is None")
+
+        if df_user is None or df_user.empty:
+            print(f"⚠️ userId {userId}의 기록이 없음, 기본 코스 반환")
+            return {
+                "user_id": userId,
+                "recommended_courses": COURSES[:k],
+                "message": "사용자 기록이 없어 인기 코스를 추천합니다"
+            }
+
+        # 2) 사용자 특성 계산
+        user_avg_distance, user_avg_pace = compute_user_features(df_user)
+        print(f"✅ 사용자 특성 계산:")
+        print(f"   평균거리: {user_avg_distance:.2f}km")
+        print(f"   평균페이스: {user_avg_pace:.2f}분/km")
+
+        # 3) KNN 추천
+        print(f"🔍 KNN 추천 시작 (CSV 코스 {len(COURSES)}개)...")
+        recommended_courses = recommend_knn(
+            user_avg_distance,
+            user_avg_pace,
+            COURSES,
+            k
+        )
+
+        print(f"✅ 최종 추천 코스:")
+        for i, course in enumerate(recommended_courses[:3], 1):
+            print(f"   {i}. {course.get('러닝코스 명', 'Unknown')}")
+
+        result = {
+            "user_id": userId,
+            "user_avg_distance": round(user_avg_distance, 2),
+            "user_avg_pace": round(user_avg_pace, 2),
+            "recommended_courses": recommended_courses,
+            "message": "거리와 페이스 기반 KNN 추천"
+        }
+        print(f"{'='*60}\n")
+        return result
+
+    except Exception as e:
+        print(f"❌ 추천 API 에러: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        print(f"{'='*60}\n")
+        return {
+            "user_id": userId,
+            "recommended_courses": COURSES[:k],
+            "error": str(e),
+            "message": "기본 코스를 반환합니다"
+        }
 
 
 @app.get("/")

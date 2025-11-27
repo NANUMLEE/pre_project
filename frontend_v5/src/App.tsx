@@ -112,6 +112,16 @@ export default function App() {
   const handleRunComplete = (run: Run) => {
     setCurrentRun(run);
     setCurrentScreen('result');
+
+    // user 정보 업데이트
+    if (user) {
+      const updatedUser = {
+        ...user,
+        totalRuns: user.totalRuns + 1,
+        totalDistance: user.totalDistance + run.distance
+      };
+      setUser(updatedUser);
+    }
   };
 
   // 결과 화면에서 완료
@@ -222,10 +232,10 @@ export default function App() {
       )}
       
       {currentScreen === 'result' && currentRun && (
-        <RunResult 
+        <RunResult
           run={currentRun}
           onComplete={handleResultComplete}
-          onRunAgain={() => setCurrentScreen('home')}
+          onRunAgain={() => setCurrentScreen('running')}
         />
       )}
       

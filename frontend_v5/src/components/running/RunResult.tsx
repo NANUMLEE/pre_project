@@ -1,6 +1,9 @@
 import { Share2, MapPin, Clock, Gauge, Flame, TrendingUp } from 'lucide-react';
 import { Button } from '../ui/button';
 import type { Run } from '../../types';
+import { useState, useEffect } from 'react';
+import { saveRunningRecord } from '../../services/api';
+import '../styles/loading-overlay.css';
 
 type RunResultProps = {
   run: Run;
@@ -9,6 +12,62 @@ type RunResultProps = {
 };
 
 export function RunResult({ run, onComplete, onRunAgain }: RunResultProps) {
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // 컴포넌트 마운트 시 DB에 기록 저장
+  useEffect(() => {
+    const saveRecord = async () => {
+      try {
+        setIsSaving(true);
+        const userId = localStorage.getItem('userId');
+        if (!userId) {
+          setSaveError('사용자 정보를 찾을 수 없습니다');
+          setIsSaving(false);
+          return;
+        }
+
+        // 시작 시간과 종료 시간 계산
+        const endTime = new Date(run.date);
+        const startTime = new Date(endTime.getTime() - run.duration * 1000);
+
+        // 시간을 "YYYY-MM-DD HH:MM:SS" 포맷으로 변환
+        const formatDateTime = (date: Date): string => {
+          const pad = (n: number) => String(n).padStart(2, '0');
+          return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+        };
+
+        const startTimeStr = formatDateTime(startTime);
+        const endTimeStr = formatDateTime(endTime);
+
+        const recordData = {
+          user_id: parseInt(userId),
+          start_time: startTimeStr,
+          end_time: endTimeStr,
+          distance_km: run.distance,
+          pace_km: run.pace,
+          calories_kcal: run.calories,
+          start_point: null,
+          end_point: null,
+          route: null
+        };
+
+        console.log('DB에 저장할 데이터:', recordData);
+        const result = await saveRunningRecord(recordData);
+        console.log('DB 저장 성공:', result);
+
+        // 최소 0.5초 동안 로딩 화면 표시
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } catch (error) {
+        console.error('DB 저장 중 오류:', error);
+        setSaveError(error instanceof Error ? error.message : '저장 중 오류가 발생했습니다');
+      } finally {
+        setIsSaving(false);
+      }
+    };
+
+    saveRecord();
+  }, [run]);
   const formatTime = (seconds: number) => {
     const hrs = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
@@ -30,6 +89,57 @@ export function RunResult({ run, onComplete, onRunAgain }: RunResultProps) {
 
   return (
     <div className="min-h-screen bg-white">
+      {/* Error Message */}
+      {saveError && (
+        <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4">
+          <p className="font-semibold">저장 오류</p>
+          <p className="text-sm">{saveError}</p>
+        </div>
+      )}
+
+      {/* Saving Overlay */}
+      {isSaving && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <style>{`
+            @keyframes spinnerRotate {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+            .loading-spinner-container {
+              animation: spinnerRotate 0.8s linear infinite;
+              display: inline-block;
+            }
+          `}</style>
+          <div className="text-center">
+            <div className="mb-4 flex justify-center">
+              <div className="loading-spinner-container">
+                <svg width="48" height="48" viewBox="0 0 50 50">
+                  <circle
+                    cx="25"
+                    cy="25"
+                    r="20"
+                    fill="none"
+                    stroke="rgba(255, 255, 255, 0.3)"
+                    strokeWidth="3"
+                  />
+                  <circle
+                    cx="25"
+                    cy="25"
+                    r="20"
+                    fill="none"
+                    stroke="#f89305"
+                    strokeWidth="3"
+                    strokeDasharray="31.4 125.6"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </div>
+            </div>
+            <p className="text-white text-lg font-semibold animate-pulse">기록 저장 중</p>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-gradient-to-br from-[#f89305] to-[#ffa940] text-white px-6 pt-12 pb-8 text-center">
         <div className="mb-4">

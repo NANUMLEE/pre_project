@@ -186,7 +186,7 @@ export function CourseList({ onCourseSelect, onNavigate, onStartRunning, courses
                   <span className={`text-xs px-2 py-1 rounded-full ${DIFFICULTY_COLORS[course.difficulty]}`}>
                     {'difficultyString' in course && course.difficultyString ? course.difficultyString : DIFFICULTY_LABELS[course.difficulty]}
                   </span>
-                  <span className="text-sm text-[#787878]">{'distanceString' in course ? course.distanceString : course.distance}</span>
+                  <span className="text-sm text-[#787878]">{'distanceString' in course ? course.distanceString : `${course.distance}km`}</span>
                   <span className="text-sm text-[#787878]">•</span>
                   <span className="text-sm font-semibold text-[#f89305] bg-orange-50 px-2 py-1 rounded-lg">예상 칼로리 {course.expectedCalories || 250}kcal</span>
                 </div>
@@ -283,7 +283,7 @@ export function CourseList({ onCourseSelect, onNavigate, onStartRunning, courses
                       <span className={`text-xs px-2 py-1 rounded-full ${DIFFICULTY_COLORS[course.difficulty]}`}>
                         {'difficultyString' in course && course.difficultyString ? course.difficultyString : DIFFICULTY_LABELS[course.difficulty]}
                       </span>
-                      <span className="text-sm text-[#787878]">{'distanceString' in course ? course.distanceString : course.distance}</span>
+                      <span className="text-sm text-[#787878]">{'distanceString' in course ? course.distanceString : `${course.distance}km`}</span>
                       <span className="text-sm text-[#787878]">•</span>
                       <span className="text-sm font-semibold text-[#f89305] bg-orange-50 px-2 py-1 rounded-lg">예상 칼로리 {course.expectedCalories || 250}kcal</span>
                     </div>
@@ -376,7 +376,7 @@ export function CourseList({ onCourseSelect, onNavigate, onStartRunning, courses
               <div className="grid grid-cols-3 gap-6">
                 <div className="text-center">
                   <p className="text-sm text-[#787878] mb-2">거리</p>
-                  <p className="text-2xl font-bold text-[#2e2d52]">{'distanceString' in selectedItem ? selectedItem.distanceString : selectedItem.distance}</p>
+                  <p className="text-2xl font-bold text-[#2e2d52]">{'distanceString' in selectedItem ? selectedItem.distanceString : `${selectedItem.distance}km`}</p>
                 </div>
                 <div className="text-center">
                   <p className="text-sm text-[#787878] mb-2">예상 칼로리</p>

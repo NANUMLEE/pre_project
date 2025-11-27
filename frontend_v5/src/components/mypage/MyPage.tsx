@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { Home, MapPin, User as UserIcon, Settings, Bell, HelpCircle, LogOut, Star, Target, History, CloudRain, Clock, Ruler, Weight, BarChart3 } from 'lucide-react';
+import { Home, MapPin, User as UserIcon, Settings, Bell, HelpCircle, LogOut, Star, History, CloudRain, Clock, Ruler, Weight, BarChart3 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import { Progress } from '../ui/progress';
 import { Switch } from '../ui/switch';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -38,22 +37,12 @@ export function MyPage({ user, onNavigate, onLogout, onUpdateUser, coursesData, 
   const [showProfileDialog, setShowProfileDialog] = useState(false);
   const [showFavoritesDialog, setShowFavoritesDialog] = useState(false);
   const [showRecordsDialog, setShowRecordsDialog] = useState(false);
-  const [showGoalDialog, setShowGoalDialog] = useState(false);
 
   // Profile edit states
   const [nickname, setNickname] = useState(user.nickname);
   const [height, setHeight] = useState(user.height?.toString() || '');
   const [weight, setWeight] = useState(user.weight?.toString() || '');
 
-  // Weekly goal states
-  const [weeklyGoal, setWeeklyGoal] = useState({
-    targetDistance: 20,
-    targetRuns: 5,
-    currentDistance: 12.3,
-    currentRuns: 3
-  });
-  const [targetDistance, setTargetDistance] = useState(weeklyGoal.targetDistance.toString());
-  const [targetRuns, setTargetRuns] = useState(weeklyGoal.targetRuns.toString());
 
   // Favorite courses and places from props
   const favoriteCourses = coursesData.filter(c => c.isFavorite).map(c => ({
@@ -121,9 +110,6 @@ export function MyPage({ user, onNavigate, onLogout, onUpdateUser, coursesData, 
     }
   ];
 
-  const progressDistance = (weeklyGoal.currentDistance / weeklyGoal.targetDistance) * 100;
-  const progressRuns = (weeklyGoal.currentRuns / weeklyGoal.targetRuns) * 100;
-
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -140,16 +126,6 @@ export function MyPage({ user, onNavigate, onLogout, onUpdateUser, coursesData, 
     };
     onUpdateUser(updatedUser);
     setShowProfileDialog(false);
-  };
-
-
-  const handleSaveGoal = () => {
-    setWeeklyGoal({
-      ...weeklyGoal,
-      targetDistance: parseFloat(targetDistance) || 20,
-      targetRuns: parseInt(targetRuns) || 5
-    });
-    setShowGoalDialog(false);
   };
 
   const handleFavoriteItemClick = (item: typeof allFavorites[0]) => {
@@ -194,43 +170,6 @@ export function MyPage({ user, onNavigate, onLogout, onUpdateUser, coursesData, 
 
       {/* Content */}
       <div className="px-6 py-6">
-        {/* Weekly Goal */}
-        <div className="bg-white rounded-2xl p-6 shadow-sm mb-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Target className="w-5 h-5 text-[#f89305]" />
-            <h3 className="text-[#2e2d52]">주간 목표</h3>
-          </div>
-          
-          <div className="space-y-4">
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-[#787878]">거리</span>
-                <span className="text-sm text-[#2e2d52]">
-                  {weeklyGoal.currentDistance}km / {weeklyGoal.targetDistance}km
-                </span>
-              </div>
-              <Progress value={progressDistance} className="h-2" />
-            </div>
-            
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-[#787878]">횟수</span>
-                <span className="text-sm text-[#2e2d52]">
-                  {weeklyGoal.currentRuns}회 / {weeklyGoal.targetRuns}회
-                </span>
-              </div>
-              <Progress value={progressRuns} className="h-2" />
-            </div>
-          </div>
-          
-          <Button 
-            onClick={() => setShowGoalDialog(true)}
-            className="w-full mt-4 bg-[#f89305]/10 hover:bg-[#f89305]/20 text-[#f89305] border-none"
-          >
-            목표 수정하기
-          </Button>
-        </div>
-
         {/* Favorite Courses */}
         <div className="bg-white rounded-2xl p-6 shadow-sm mb-6">
           <div className="flex items-center justify-between mb-4">
@@ -472,58 +411,6 @@ export function MyPage({ user, onNavigate, onLogout, onUpdateUser, coursesData, 
             </Button>
             <Button
               onClick={handleSaveProfile}
-              className="flex-1 bg-[#f89305] hover:bg-[#e08504] text-white"
-            >
-              저장
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Goal Edit Dialog */}
-      <Dialog open={showGoalDialog} onOpenChange={setShowGoalDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>주간 목표 수정</DialogTitle>
-            <DialogDescription>
-              이번 주 러닝 목표를 설정해주세요.
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-6 py-4">
-            <div>
-              <label className="block text-sm text-[#2e2d52] mb-2">목표 거리 (km)</label>
-              <Input
-                type="number"
-                placeholder="예: 20"
-                value={targetDistance}
-                onChange={(e) => setTargetDistance(e.target.value)}
-                className="h-12 bg-[#f3f3f5] border-none rounded-xl"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm text-[#2e2d52] mb-2">목표 횟수 (회)</label>
-              <Input
-                type="number"
-                placeholder="예: 5"
-                value={targetRuns}
-                onChange={(e) => setTargetRuns(e.target.value)}
-                className="h-12 bg-[#f3f3f5] border-none rounded-xl"
-              />
-            </div>
-          </div>
-
-          <div className="flex gap-3">
-            <Button
-              variant="outline"
-              onClick={() => setShowGoalDialog(false)}
-              className="flex-1"
-            >
-              취소
-            </Button>
-            <Button
-              onClick={handleSaveGoal}
               className="flex-1 bg-[#f89305] hover:bg-[#e08504] text-white"
             >
               저장

@@ -21,8 +21,12 @@ export function RecommendedCourses({ courses, onStartRunning }: RecommendedCours
     const loadRecommendedCourses = async () => {
       try {
         setIsLoading(true);
+        // localStorage에서 userId 가져오기
+        const userId = localStorage.getItem('userId');
+        const actualUserId = userId ? parseInt(userId) : 1;
+
         // API에서 추천 코스 조회 (상위 5개)
-        const recommendedData = await fetchRecommendedCourses(1, 5);
+        const recommendedData = await fetchRecommendedCourses(actualUserId, 5);
 
         // CSV 데이터를 Course 타입으로 변환
         const convertedCourses = recommendedData.map((course, index) =>

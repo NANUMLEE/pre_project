@@ -18,7 +18,7 @@ export const API_BASE_URL =
 // ngrok에서 WebSocket을 사용할 때는 https/wss 사용 필요
 // ngrok이 HTTP를 WSS로 자동 변환합니다.
 export const WS_BASE_URL =
-  import.meta.env.VITE_WS_BASE_URL || 'wss://paramedical-unsortable-nan.ngrok-free.dev';
+  import.meta.env.VITE_WS_BASE_URL || 'wss://pa-unamazed-michiko.ngrok-free.dev';
 
 /**
  * 날씨 정보 API 엔드포인트
