@@ -1,3 +1,8 @@
+# -*- coding: utf-8 -*-
+import sys
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
 import requests
 from urllib.parse import quote
 from datetime import datetime
@@ -5,12 +10,16 @@ from dotenv import load_dotenv
 import os
 import csv
 import pandas as pd
+import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from sqlalchemy import create_engine, text
 from pydantic import BaseModel
 from typing import Optional
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
+import openrouteservice
 
 # 환경 변수 로드
 load_dotenv()
@@ -29,9 +38,20 @@ engine = create_engine(DB_URL, echo=False)
 try:
     with engine.connect() as conn:
         result = conn.execute(text("SELECT 1"))
-        print("✅ Users DB 연결 성공!")
+        print("✅ Users DB connected successfully!")
 except Exception as e:
-    print(f"❌ DB 연결 실패: {str(e)}")
+    print(f"❌ DB connection failed: {str(e)}")
+
+# ================================
+# OpenRouteService API 설정 (위치기반 추천)
+# ================================
+ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjA3YThlZjdiN2ViMzQwNmFhYTM3MGFlNzY4N2YxMjE3IiwiaCI6Im11cm11cjY0In0="
+try:
+    ors_client = openrouteservice.Client(key=ORS_API_KEY)
+    print("✅ OpenRouteService connected successfully!")
+except Exception as e:
+    print(f"⚠️ OpenRouteService connection failed: {str(e)}")
+    ors_client = None
 
 
 # ✅ CSV 파일 읽는 함수
@@ -78,9 +98,156 @@ def load_csv(filepath):
     return data
 
 
-# 📌 CSV 데이터 로드 (서버 시작 시 1번만 읽음)
-COURSES = load_csv("./data/러닝 코스 데이터_전처리(최종).csv")
-PLACES = load_csv("./data/러닝 장소 데이터_전처리(최종).csv")
+# # CSV 데이터 로드 (서버 시작 시 1번만 읽음)
+base_dir = os.path.dirname(os.path.abspath(__file__))
+COURSES = load_csv(os.path.join(base_dir, "data", "러닝 코스 데이터_전처리(최종).csv"))
+PLACES = load_csv(os.path.join(base_dir, "data", "러닝 장소 데이터_전처리(최종).csv"))
+
+
+# ================================================================
+# 위치기반 러닝 코스 추천 함수
+# ================================================================
+
+def ors_distance(lat1, lon1, lat2, lon2):
+    """OpenRouteService를 이용해 실제 도보 경로 거리(km)를 반환"""
+    try:
+        if ors_client is None:
+            return None
+        coords = [(lon1, lat1), (lon2, lat2)]  # ORS는 (lon, lat) 순서
+        route = ors_client.directions(
+            coordinates=coords,
+            profile='foot-walking',
+            format='geojson'
+        )
+        seg = route['features'][0]['properties']['segments'][0]
+        dist_km = seg["distance"] / 1000  # meters → km
+        return dist_km
+    except Exception as e:
+        print(f"❌ ORS Distance Error: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def recommend_location_based_courses(user_id, user_lat, user_lon, top_k=5):
+    """
+    사용자 위치 기반 러닝 코스 추천
+    - user_id: 사용자 ID
+    - user_lat, user_lon: 사용자 현재 위치 (위도, 경도)
+    - top_k: 추천할 코스 개수
+    """
+    try:
+        print(f"\n{'='*60}")
+        print(f"📍 위치기반 추천 시작: userId={user_id}, lat={user_lat}, lon={user_lon}")
+        print(f"{'='*60}")
+
+        # ① 사용자 러닝 기록 불러오기
+        df_user = pd.read_sql(f"""
+            SELECT distance_km
+            FROM running_record
+            WHERE user_id = {user_id}
+        """, engine)
+
+        if df_user.empty:
+            print(f"⚠️ 사용자 {user_id}의 기록이 없음, 기본 코스 반환")
+            return {
+                "user_id": user_id,
+                "user_location": {"lat": user_lat, "lon": user_lon},
+                "recommended_courses": COURSES[:top_k],
+                "message": "사용자 기록이 없어 인기 코스를 추천합니다"
+            }
+
+        avg_distance = df_user["distance_km"].mean()
+        print(f"✅ 사용자 평균 거리: {avg_distance:.2f}km")
+
+        # ② 코스 데이터를 DataFrame으로 변환
+        df_courses = pd.DataFrame(COURSES)
+
+        # 난이도 스코어 매핑
+        diff_map = {"초급": 1, "중급": 2, "상급": 3}
+        df_courses["difficulty"] = df_courses.get("난이도", "중급")
+        df_courses["difficulty_score"] = df_courses["difficulty"].map(diff_map).fillna(2)
+
+        # CSV의 거리를 숫자로 변환
+        def parse_distance(distance_val):
+            try:
+                if isinstance(distance_val, str):
+                    return float(distance_val.strip().replace('km', '').replace('Km', '').strip())
+                return float(distance_val) if distance_val else 0
+            except:
+                return 0
+
+        df_courses["distance_parsed"] = df_courses["거리"].apply(parse_distance)
+
+        # ③ ORS 기반 사용자-코스 거리 계산
+        print(f"🔍 ORS를 이용한 거리 계산 중...")
+        df_courses["geo_distance_km"] = df_courses.apply(
+            lambda r: ors_distance(user_lat, user_lon, r.get("start_lat", 0), r.get("start_lng", 0)),
+            axis=1
+        )
+        df_courses["geo_distance_km"] = df_courses["geo_distance_km"].fillna(0)
+        print(f"✅ 거리 계산 완료")
+
+        # ④ 키워드 TF-IDF (선택사항)
+        if "keywords" in df_courses.columns:
+            vectorizer = TfidfVectorizer()
+            keyword_vectors = vectorizer.fit_transform(df_courses["keywords"].fillna(""))
+        else:
+            keyword_vectors = None
+
+        # ⑤ 전체 벡터 생성
+        numeric_features = df_courses[[
+            "distance_parsed",
+            "difficulty_score",
+            "geo_distance_km"
+        ]].fillna(0).values
+
+        if keyword_vectors is not None:
+            X_combined = np.hstack((numeric_features, keyword_vectors.toarray()))
+            user_keyword_vec = vectorizer.transform([""])
+            user_profile = np.hstack((
+                user_keyword_vec.toarray()[0]
+            )).reshape(1, -1)
+            df_courses["similarity"] = cosine_similarity(user_profile, X_combined).flatten()
+        else:
+            X_combined = numeric_features
+            user_profile = np.array([[avg_distance, 2.0, 0]])
+            distances = euclidean_distances(user_profile, X_combined).flatten()
+            df_courses["similarity"] = 1 / (1 + distances)
+
+        # ⑥ 추천 코스 선정
+        recommended = df_courses.sort_values("similarity", ascending=False).head(top_k)
+
+        # CSV 필드만 반환 (similarity 제외)
+        result_courses = []
+        for _, row in recommended.iterrows():
+            course_dict = {k: v for k, v in row.items() if k not in ['similarity', 'distance_parsed', 'difficulty_score', 'geo_distance_km', 'difficulty']}
+            result_courses.append(course_dict)
+
+        print(f"✅ 최종 추천 코스 ({len(result_courses)}개):")
+        for i, course in enumerate(result_courses, 1):
+            print(f"   {i}. {course.get('러닝코스 명', 'Unknown')}")
+
+        print(f"{'='*60}\n")
+
+        return {
+            "user_id": user_id,
+            "user_location": {"lat": user_lat, "lon": user_lon},
+            "user_avg_distance": round(avg_distance, 2),
+            "recommended_courses": result_courses,
+            "message": "위치와 거리 기반 코스 추천"
+        }
+
+    except Exception as e:
+        print(f"❌ 위치기반 추천 에러: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "user_id": user_id,
+            "recommended_courses": COURSES[:top_k],
+            "error": str(e),
+            "message": "기본 코스를 반환합니다"
+        }
 
 
 # 기상청 API 호출 함수
@@ -112,8 +279,10 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 # ================================
@@ -395,13 +564,13 @@ def weather_today():
 #     러닝 코스 & 장소 API 엔드포인트
 # ================================
 
-# 📌 1) 러닝 코스 데이터 제공
+# # 1) 러닝 코스 데이터 제공
 @app.get("/api/courses")
 def get_courses():
     return {"courses": COURSES}
 
 
-# 📌 2) 러닝 장소 데이터 제공
+# # 2) 러닝 장소 데이터 제공
 @app.get("/api/places")
 def get_places():
     return {"places": PLACES}
@@ -898,6 +1067,31 @@ def get_recommended_courses(userId: int = 1, k: int = 5):
             "recommended_courses": COURSES[:k],
             "error": str(e),
             "message": "기본 코스를 반환합니다"
+        }
+
+
+@app.get("/api/nearby-running-courses")
+def get_nearby_running_courses(user_id: int = 1, user_lat: float = 37.4979, user_lon: float = 127.0276, k: int = 5):
+    """
+    사용자 위치 기반 추천 러닝 코스 API
+
+    파라미터:
+    - user_id: 사용자 ID
+    - user_lat: 사용자 위도 (기본: 강남역 위도)
+    - user_lon: 사용자 경도 (기본: 강남역 경도)
+    - k: 추천할 코스 개수 (기본: 5)
+
+    사용 예시: /api/nearby-running-courses?user_id=1&user_lat=37.4979&user_lon=127.0276&k=5
+    """
+    try:
+        result = recommend_location_based_courses(user_id, user_lat, user_lon, top_k=k)
+        return result
+    except Exception as e:
+        print(f"❌ 위치기반 추천 API 에러: {str(e)}")
+        return {
+            "user_id": user_id,
+            "error": str(e),
+            "message": "주변 러닝 코스 추천에 실패했습니다"
         }
 
 
