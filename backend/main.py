@@ -107,156 +107,25 @@ PLACES = load_csv(os.path.join(base_dir, "data", "러닝 장소 데이터_전처
 
 
 # ================================================================
-# 위치기반 러닝 코스 추천 함수
+# location-based model import
 # ================================================================
-
-def ors_distance(lat1, lon1, lat2, lon2):
-    """OpenRouteService를 이용해 실제 도보 경로 거리(km)를 반환"""
-    try:
-        if ors_client is None:
-            return None
-        coords = [(lon1, lat1), (lon2, lat2)]  # ORS는 (lon, lat) 순서
-        route = ors_client.directions(
-            coordinates=coords,
-            profile='foot-walking',
-            format='geojson'
-        )
-        seg = route['features'][0]['properties']['segments'][0]
-        dist_km = seg["distance"] / 1000  # meters → km
-        return dist_km
-    except Exception as e:
-        print(f"❌ ORS Distance Error: {type(e).__name__}: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return None
+try:
+    from location import recommend_courses as recommend_location_based_courses
+    print("✅ location-based model imported successfully")
+except ImportError as e:
+    print(f"❌ location-based model import failed: {str(e)}")
+    recommend_location_based_courses = None
 
 
-def calculate_course_distance(course_row, user_lat, user_lon):
-    """단일 코스 거리 계산 (병렬 처리용)"""
-    start_lat = course_row.get("start_lat", 0)
-    start_lng = course_row.get("start_lng", 0)
-    return ors_distance(user_lat, user_lon, start_lat, start_lng)
-
-
-def recommend_location_based_courses(user_id, user_lat, user_lon, top_k=5):
-    """
-    사용자 위치 기반 러닝 코스 추천
-    - user_id: 사용자 ID
-    - user_lat, user_lon: 사용자 현재 위치 (위도, 경도)
-    - top_k: 추천할 코스 개수
-    """
-    try:
-        print(f"\n{'='*60}")
-        print(f"📍 위치기반 추천 시작: userId={user_id}, lat={user_lat}, lon={user_lon}")
-        print(f"{'='*60}")
-
-        # ① 사용자 러닝 기록 불러오기
-        df_user = pd.read_sql(f"""
-            SELECT distance_km
-            FROM running_record
-            WHERE user_id = {user_id}
-        """, engine)
-
-        if df_user.empty:
-            print(f"⚠️ 사용자 {user_id}의 기록이 없음, 기본 코스 반환")
-            return {
-                "user_id": user_id,
-                "user_location": {"lat": user_lat, "lon": user_lon},
-                "recommended_courses": COURSES[:top_k],
-                "message": "사용자 기록이 없어 인기 코스를 추천합니다"
-            }
-
-        avg_distance = df_user["distance_km"].mean()
-        print(f"✅ 사용자 평균 거리: {avg_distance:.2f}km")
-
-        # ② 코스 데이터를 DataFrame으로 변환
-        df_courses = pd.DataFrame(COURSES)
-
-        # 난이도 스코어 매핑
-        diff_map = {"초급": 1, "중급": 2, "상급": 3}
-        df_courses["difficulty"] = df_courses.get("난이도", "중급")
-        df_courses["difficulty_score"] = df_courses["difficulty"].map(diff_map).fillna(2)
-
-        # CSV의 거리를 숫자로 변환
-        def parse_distance(distance_val):
-            try:
-                if isinstance(distance_val, str):
-                    return float(distance_val.strip().replace('km', '').replace('Km', '').strip())
-                return float(distance_val) if distance_val else 0
-            except:
-                return 0
-
-        df_courses["distance_parsed"] = df_courses["거리"].apply(parse_distance)
-
-        # ③ ORS 기반 사용자-코스 거리 계산
-        print(f"🔍 ORS를 이용한 거리 계산 중...")
-        df_courses["geo_distance_km"] = df_courses.apply(
-            lambda r: ors_distance(user_lat, user_lon, r.get("start_lat", 0), r.get("start_lng", 0)),
-            axis=1
-        )
-        df_courses["geo_distance_km"] = df_courses["geo_distance_km"].fillna(0)
-        print(f"✅ 거리 계산 완료")
-
-        # ④ 키워드 TF-IDF (선택사항)
-        if "keywords" in df_courses.columns:
-            vectorizer = TfidfVectorizer()
-            keyword_vectors = vectorizer.fit_transform(df_courses["keywords"].fillna(""))
-        else:
-            keyword_vectors = None
-
-        # ⑤ 전체 벡터 생성
-        numeric_features = df_courses[[
-            "distance_parsed",
-            "difficulty_score",
-            "geo_distance_km"
-        ]].fillna(0).values
-
-        if keyword_vectors is not None:
-            X_combined = np.hstack((numeric_features, keyword_vectors.toarray()))
-            user_keyword_vec = vectorizer.transform([""])
-            user_profile = np.hstack((
-                user_keyword_vec.toarray()[0]
-            )).reshape(1, -1)
-            df_courses["similarity"] = cosine_similarity(user_profile, X_combined).flatten()
-        else:
-            X_combined = numeric_features
-            user_profile = np.array([[avg_distance, 2.0, 0]])
-            distances = euclidean_distances(user_profile, X_combined).flatten()
-            df_courses["similarity"] = 1 / (1 + distances)
-
-        # ⑥ 추천 코스 선정
-        recommended = df_courses.sort_values("similarity", ascending=False).head(top_k)
-
-        # CSV 필드만 반환 (similarity 제외)
-        result_courses = []
-        for _, row in recommended.iterrows():
-            course_dict = {k: v for k, v in row.items() if k not in ['similarity', 'distance_parsed', 'difficulty_score', 'geo_distance_km', 'difficulty']}
-            result_courses.append(course_dict)
-
-        print(f"✅ 최종 추천 코스 ({len(result_courses)}개):")
-        for i, course in enumerate(result_courses, 1):
-            print(f"   {i}. {course.get('러닝코스 명', 'Unknown')}")
-
-        print(f"{'='*60}\n")
-
-        return {
-            "user_id": user_id,
-            "user_location": {"lat": user_lat, "lon": user_lon},
-            "user_avg_distance": round(avg_distance, 2),
-            "recommended_courses": result_courses,
-            "message": "위치와 거리 기반 코스 추천"
-        }
-
-    except Exception as e:
-        print(f"❌ 위치기반 추천 에러: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return {
-            "user_id": user_id,
-            "recommended_courses": COURSES[:top_k],
-            "error": str(e),
-            "message": "기본 코스를 반환합니다"
-        }
+# ================================================================
+# distance and pace-based model import
+# ================================================================
+try:
+    from distance_and_pace_model import recommend_courses_by_distance_pace
+    print("✅ distance and pace-based model imported successfully")
+except ImportError as e:
+    print(f"❌ distance and pace-based model import failed: {str(e)}")
+    recommend_courses_by_distance_pace = None
 
 
 # 기상청 API 호출 함수
@@ -874,211 +743,59 @@ def create_running_record(request: RunningRecordCreate):
 
 
 # ================================
-#     KNN 기반 맞춤형 추천 코스 API (Distance & Pace)
+#     거리/페이스 기반 추천 코스 API (Distance & Pace)
 # ================================
-
-def load_user_record(user_id: int):
-    """DB의 running_record 테이블에서 특정 사용자 기록 로드"""
-    try:
-        import pandas as pd
-        query = text("""
-            SELECT
-                distance_km as Distance,
-                pace_km as Running_time
-            FROM running_record
-            WHERE user_id = :user_id
-            ORDER BY start_time DESC
-            LIMIT 50
-        """)
-        with engine.begin() as conn:
-            result = conn.execute(query, {"user_id": user_id}).fetchall()
-
-        print(f"   [DB 쿼리] user_id={user_id}, 조회 결과: {len(result) if result else 0}개")
-
-        if not result:
-            print(f"   ⚠️ 쿼리 결과가 비어있음")
-            return None
-
-        # pandas DataFrame으로 변환
-        df = pd.DataFrame([{"Distance": r[0], "Running_time": r[1]} for r in result])
-        print(f"   ✅ DataFrame 생성 완료: {len(df)}행")
-        print(f"   Distance: {df['Distance'].values[:3]}")
-        print(f"   Running_time: {df['Running_time'].values[:3]}")
-        return df
-    except Exception as e:
-        print(f"   ❌ 사용자 기록 로드 실패: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return None
-
-
-def compute_user_features(df_user, n_recent=5):
-    """사용자의 거리와 페이스 특성 계산"""
-    try:
-        df_recent = df_user.head(n_recent)
-
-        user_avg_distance = df_recent["Distance"].mean()
-        # pace_km은 이미 분/km 단위
-        user_avg_pace = df_recent["Running_time"].mean()
-
-        return user_avg_distance, user_avg_pace
-    except Exception as e:
-        print(f"❌ 사용자 특성 계산 실패: {str(e)}")
-        return 5.0, 6.0  # 기본값
-
-
-def recommend_knn(user_avg_distance: float, user_avg_pace: float, courses: list, k: int = 5):
-    """KNN 알고리즘을 사용한 코스 추천"""
-    try:
-        import numpy as np
-        from sklearn.neighbors import NearestNeighbors
-
-        if not courses:
-            print(f"   ❌ 코스 데이터 없음")
-            return []
-
-        # 코스 벡터 생성 (거리, 페이스)
-        course_vectors = []
-        valid_courses = []
-
-        print(f"   📊 CSV 코스 데이터 분석:")
-        # 모든 코스 처리
-        for i, course in enumerate(courses):
-            try:
-                # 거리를 숫자로 변환 (숫자형 또는 문자형 모두 지원)
-                distance_raw = course.get("거리", 0)
-                if isinstance(distance_raw, str):
-                    # 문자형인 경우: 'km' 제거 후 변환
-                    distance_str = distance_raw.strip().replace('km', '').replace('Km', '').strip()
-                    distance = float(distance_str) if distance_str else 0
-                else:
-                    # 숫자형인 경우: 바로 변환
-                    distance = float(distance_raw) if distance_raw else 0
-
-                if distance > 0:
-                    course_vectors.append([distance, 6.0])
-                    valid_courses.append(course)
-
-                    # 처음 5개만 출력 (샘플)
-                    if i < 5:
-                        course_name = course.get("러닝코스 명", "Unknown")
-                        print(f"      {i+1}. {course_name}: {distance}km ✅")
-            except Exception as e:
-                # 처음 5개만 에러 출력
-                if i < 5:
-                    print(f"      ❌ 파싱 실패: {course.get('러닝코스 명', 'Unknown')} - {str(e)}")
-                continue
-
-        print(f"   ✅ 유효한 코스: {len(valid_courses)}개 (전체 {len(courses)}개 중)")
-
-        if not course_vectors:
-            print(f"   ❌ 유효한 코스 벡터 없음, 기본 추천으로 대체")
-            return courses[:k]
-
-        # 사용자 벡터
-        user_vec = np.array([[user_avg_distance, user_avg_pace]])
-        course_vec = np.array(course_vectors)
-
-        print(f"   🎯 사용자 벡터: distance={user_avg_distance:.2f}, pace={user_avg_pace:.2f}")
-        print(f"   🎯 코스 벡터 샘플 (첫 3개): {course_vec[:3]}")
-
-        # KNN 모델
-        knn = NearestNeighbors(
-            n_neighbors=min(k, len(course_vec)),
-            metric="euclidean"
-        )
-        knn.fit(course_vec)
-
-        # top-k 코스 찾기
-        distances, idx = knn.kneighbors(user_vec)
-
-        print(f"   📍 KNN 거리 (유사도):")
-        for i, (distance, course_idx) in enumerate(zip(distances[0], idx[0])):
-            recommended_course = valid_courses[course_idx]
-            print(f"      {i+1}. {recommended_course.get('러닝코스 명', 'Unknown')} (거리: {distance:.2f})")
-
-        recommended = [valid_courses[i] for i in idx[0]]
-        print(f"✅ KNN 추천 완료: {len(recommended)}개 코스")
-
-        return recommended
-    except ImportError:
-        print("⚠️ scikit-learn 미설치, 기본 추천으로 대체")
-        return courses[:k]
-    except Exception as e:
-        print(f"❌ KNN 추천 실패: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return courses[:k]
-
-
 @app.get("/api/recommended-courses")
-def get_recommended_courses(userId: int = 1, k: int = 5):
+def get_recommended_courses(user_id: int = 1, k: int = 5):
     """
-    사용자별 맞춤 추천 코스 API (KNN 기반)
-    - 사용자의 거리와 페이스 기반 추천
+    사용자의 거리 및 페이스 기반 추천 러닝 코스 API
+
+    파라미터:
+    - user_id: 사용자 ID
+    - k: 추천할 코스 개수 (기본: 5)
+
+    사용 예시: /api/recommended-courses?user_id=1&k=5
     """
     try:
         print(f"\n{'='*60}")
-        print(f"📍 추천 코스 요청: userId={userId}, k={k}")
+        print(f"📍 거리/페이스 기반 추천 코스 요청: user_id={user_id}, k={k}")
         print(f"{'='*60}")
 
-        # 1) 사용자 기록 로드
-        df_user = load_user_record(userId)
+        if recommend_courses_by_distance_pace is None:
+            raise Exception("distance and pace-based model을 불러올 수 없습니다")
 
-        if df_user is not None:
-            print(f"✅ 사용자 기록 로드 성공: {len(df_user)}개 기록")
-            print(f"   Distance 샘플: {df_user['Distance'].head(3).values}")
-            print(f"   Running_time 샘플: {df_user['Running_time'].head(3).values}")
-        else:
-            print(f"❌ df_user is None")
+        result = recommend_courses_by_distance_pace(user_id, k)
 
-        if df_user is None or df_user.empty:
-            print(f"⚠️ userId {userId}의 기록이 없음, 기본 코스 반환")
-            return {
-                "user_id": userId,
-                "recommended_courses": COURSES[:k],
-                "message": "사용자 기록이 없어 인기 코스를 추천합니다"
-            }
+        # 모델이 반환한 course_id를 기반으로 원본 COURSES 데이터와 매칭
+        if result.get("status") == "success" and result.get("recommended_courses"):
+            matched_courses = []
+            for recommended_course in result["recommended_courses"]:
+                course_id = recommended_course.get("course_id")
+                # COURSES 데이터에서 매칭되는 코스 찾기 (index로도 가능)
+                if isinstance(course_id, int) and 0 <= course_id < len(COURSES):
+                    matched_courses.append(COURSES[course_id])
 
-        # 2) 사용자 특성 계산
-        user_avg_distance, user_avg_pace = compute_user_features(df_user)
-        print(f"✅ 사용자 특성 계산:")
-        print(f"   평균거리: {user_avg_distance:.2f}km")
-        print(f"   평균페이스: {user_avg_pace:.2f}분/km")
+            # 매칭된 코스가 있으면 result 업데이트
+            if matched_courses:
+                result["recommended_courses"] = matched_courses
+                result["recommended_count"] = len(matched_courses)
 
-        # 3) KNN 추천
-        print(f"🔍 KNN 추천 시작 (CSV 코스 {len(COURSES)}개)...")
-        recommended_courses = recommend_knn(
-            user_avg_distance,
-            user_avg_pace,
-            COURSES,
-            k
-        )
-
-        print(f"✅ 최종 추천 코스:")
-        for i, course in enumerate(recommended_courses[:3], 1):
-            print(f"   {i}. {course.get('러닝코스 명', 'Unknown')}")
-
-        result = {
-            "user_id": userId,
-            "user_avg_distance": round(user_avg_distance, 2),
-            "user_avg_pace": round(user_avg_pace, 2),
-            "recommended_courses": recommended_courses,
-            "message": "거리와 페이스 기반 KNN 추천"
-        }
+        print(f"✅ 추천 완료: {result.get('recommended_count', 0)}개 코스")
         print(f"{'='*60}\n")
-        return result
 
+        return result
     except Exception as e:
-        print(f"❌ 추천 API 에러: {str(e)}")
+        print(f"❌ 거리/페이스 기반 추천 API 에러: {str(e)}")
         import traceback
         traceback.print_exc()
         print(f"{'='*60}\n")
         return {
-            "user_id": userId,
-            "recommended_courses": COURSES[:k],
+            "status": "error",
+            "user_id": user_id,
+            "recommended_count": 0,
+            "recommended_courses": [],
             "error": str(e),
-            "message": "기본 코스를 반환합니다"
+            "message": "거리와 페이스 기반 추천에 실패했습니다"
         }
 
 
@@ -1096,10 +813,15 @@ def get_nearby_running_courses(user_id: int = 1, user_lat: float = 37.4979, user
     사용 예시: /api/nearby-running-courses?user_id=1&user_lat=37.4979&user_lon=127.0276&k=5
     """
     try:
+        if recommend_location_based_courses is None:
+            raise Exception("location-based model을 불러올 수 없습니다")
+
         result = recommend_location_based_courses(user_id, user_lat, user_lon, top_k=k)
         return result
     except Exception as e:
         print(f"❌ 위치기반 추천 API 에러: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return {
             "user_id": user_id,
             "error": str(e),
