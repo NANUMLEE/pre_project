@@ -76,26 +76,24 @@ export function NearbyMap({ nearbyLocations, setNearbyLocations }: NearbyMapProp
   }, [myPosition, otherUsers]);
 
   // 두 지점 사이의 거리를 Haversine 공식으로 계산 (km)
-  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-    const R = 6371; // 지구 반지름 (km)
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+    const R = 6371; // 지구의 반지름 (km)
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos((lat1 * Math.PI) / 180) *
-        Math.cos((lat2 * Math.PI) / 180) *
-        Math.sin(dLon / 2) *
-        Math.sin(dLon / 2);
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLng / 2) * Math.sin(dLng / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
   };
 
-  const fetchNearbyRunningCourses = async (lat: number, lon: number) => {
+  const fetchNearbyRunningCourses = async (lat: number, lng: number) => {
     try {
       setIsLoading(true);
       const numericUserId = parseInt(userId, 10) || 1;
 
-      const url = `${API_BASE_URL}/api/nearby-running-courses?user_id=${numericUserId}&user_lat=${lat}&user_lon=${lon}&k=3`;
+      const url = `${API_BASE_URL}/api/nearby-running-courses?user_id=${numericUserId}&user_lat=${lat}&user_lon=${lng}&k=3`;
       console.log('🌐 주변 러닝 코스 API 요청:', url);
 
       const response = await fetch(url, {
@@ -115,25 +113,25 @@ export function NearbyMap({ nearbyLocations, setNearbyLocations }: NearbyMapProp
       if (data.recommended_courses && Array.isArray(data.recommended_courses)) {
         const formattedLocations: NearbyLocation[] = data.recommended_courses.map(
           (course: any, index: number) => {
-            // 코스의 시작점과 끝점 좌표
+            // 백엔드에서 이미 계산된 코스 중간 지점 사용
+            const courseMidLat = parseFloat(course['중간위도'] || 0);
+            const courseMidLng = parseFloat(course['중간경도'] || 0);
+
+            // 코스의 시작점과 끝점 좌표 (마커 표시용)
             const startLat = parseFloat(course['위도1'] || course.start_lat || 0);
             const startLng = parseFloat(course['경도1'] || course.start_lng || 0);
             const endLat = parseFloat(course['위도2'] || course.end_lat || 0);
             const endLng = parseFloat(course['경도2'] || course.end_lng || 0);
 
-            // 코스의 중간 지점 계산
-            const courseMidLat = (startLat + endLat) / 2;
-            const courseMidLng = (startLng + endLng) / 2;
-
             // 내 위치에서 코스 중간 지점까지의 거리 계산
-            const distanceToCoarse = calculateDistance(lat, lon, courseMidLat, courseMidLng);
+            const distanceToCourse = calculateDistance(lat, lng, courseMidLat, courseMidLng);
 
             return {
               id: `${index}`,
               name: course['러닝코스 명'] || course.name || '코스명 미정',
               runners: Math.floor(Math.random() * 20) + 5,
               distance: course['거리'] ? `${course['거리']}km` : '거리 미정',
-              distanceFromMe: `${distanceToCoarse.toFixed(1)}km`,
+              distanceFromMe: `${distanceToCourse.toFixed(1)}km`,
               courseStartLat: startLat,
               courseStartLng: startLng,
               courseEndLat: endLat,

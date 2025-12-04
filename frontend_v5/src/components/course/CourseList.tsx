@@ -267,14 +267,17 @@ export function CourseList({ onCourseSelect, onNavigate, onStartRunning, courses
                     <Star className={`w-5 h-5 ${place.isFavorite ? 'text-[#f89305] fill-[#f89305]' : 'text-[#787878]'}`} />
                   </button>
                 </div>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-sm text-[#787878]">
-                    내 위치에서 {userPosition && 'startPoint' in place ?
-                      calculateDistance(userPosition.lat, userPosition.lng, place.startPoint[0], place.startPoint[1]).toFixed(2)
-                      : place.distance}km
-                  </span>
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-sm text-[#787878]">내 위치에서</span>
                 </div>
-                <p className="text-sm text-[#787878]">{place.description}</p>
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-sm font-black text-[#03cfb4] bg-cyan-100 px-2 py-1 rounded">{userPosition && 'startPoint' in place ?
+                      calculateDistance(userPosition.lat, userPosition.lng, place.startPoint[0], place.startPoint[1]).toFixed(2)
+                      : place.distance}km</span>
+                </div>
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-sm text-[#787878]">떨어진 러닝 장소</span>
+                </div>
               </div>
             ))}
           </>

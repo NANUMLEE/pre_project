@@ -102,38 +102,12 @@ export function convertToCourse(csvData: CourseData, index: number): import('../
 
   const startLat = parseFloat(csvData['위도1']?.toString() || '0') || 0;
   const startLng = parseFloat(csvData['경도1']?.toString() || '0') || 0;
-
-  // 경유지 좌표 수집
-  const viaPoints: Array<{ lat: number; lng: number }> = [];
-
-  // 경유지 1
-  const via1Lat = parseFloat(csvData['경유지위도1']?.toString() || '');
-  const via1Lng = parseFloat(csvData['경유지경도1']?.toString() || '');
-  if (!isNaN(via1Lat) && !isNaN(via1Lng)) {
-    viaPoints.push({ lat: via1Lat, lng: via1Lng });
-  }
-
-  // 경유지 2
-  const via2Lat = parseFloat(csvData['경유지위도2']?.toString() || '');
-  const via2Lng = parseFloat(csvData['경유지경도2']?.toString() || '');
-  if (!isNaN(via2Lat) && !isNaN(via2Lng)) {
-    viaPoints.push({ lat: via2Lat, lng: via2Lng });
-  }
-
-  // 경유지 3
-  const via3Lat = parseFloat(csvData['경유지위도3']?.toString() || '');
-  const via3Lng = parseFloat(csvData['경유지경도3']?.toString() || '');
-  if (!isNaN(via3Lat) && !isNaN(via3Lng)) {
-    viaPoints.push({ lat: via3Lat, lng: via3Lng });
-  }
-
-  // 경로: 시작점 + 경유지들 + 끝점
   const endLat = parseFloat(csvData['위도2']?.toString() || '0') || startLat;
   const endLng = parseFloat(csvData['경도2']?.toString() || '0') || startLng;
 
+  // 경로: 시작점 + 끝점
   const route: [number, number][] = [
     [startLat, startLng],
-    ...viaPoints.map((p: any) => [p.lat, p.lng] as [number, number]),
     [endLat, endLng]
   ];
 
@@ -150,12 +124,13 @@ export function convertToCourse(csvData: CourseData, index: number): import('../
     difficulty = 'easy';
   } else if (difficultyString.includes('중급')) {
     difficulty = 'medium';
-  } else if (difficultyString.includes('상급')) {
+  } else if (difficultyString.includes('상급') || difficultyString.includes('고급')) {
     difficulty = 'hard';
   }
 
-  // 평균 페이스 (km당 분 단위, 거리 기반 추정)
-  const avgPace = distanceNumber > 0 ? 6 : 0;
+  // 평균 페이스 (duration_min / 거리)
+  const durationMin = parseFloat(csvData['duration_min']?.toString() || '0') || 0;
+  const avgPace = distanceNumber > 0 ? Math.round((durationMin / distanceNumber) * 100) / 100 : 6;
 
   return {
     id: `course-${index}-${csvData['러닝코스 명']?.toString() || 'unknown'}`,
@@ -165,7 +140,7 @@ export function convertToCourse(csvData: CourseData, index: number): import('../
     distanceString: distanceString,
     difficulty: difficulty,
     difficultyString: difficultyString,
-    estimatedTime: Math.round(distanceNumber * avgPace),
+    estimatedTime: Math.round(durationMin),
     location: csvData['자치구']?.toString() || '',
     startPoint: [startLat, startLng],
     route: route,
@@ -185,7 +160,7 @@ export function convertToPlace(csvData: PlaceData, index: number): any {
   return {
     id: `place-${index}-${csvData['러닝코스 명']?.toString() || 'unknown'}`,
     name: csvData['러닝코스 명']?.toString() || '',
-    description: csvData['코스']?.toString() || `${distance}km 떨어진 러닝 장소`,
+    description: csvData['코스']?.toString() || '',
     distance: distance,
     location: csvData['자치구']?.toString() || '',
     address: csvData['시작 주소']?.toString() || '',
@@ -198,7 +173,7 @@ export function convertToPlace(csvData: PlaceData, index: number): any {
 export async function fetchRecommendedCourses(userId: number = 1, k: number = 5): Promise<CourseData[]> {
   try {
     console.log('추천 코스 요청:', `${API_BASE_URL}/api/recommended-courses`, { userId, k });
-    const response = await fetch(`${API_BASE_URL}/api/recommended-courses?userId=${userId}&k=${k}`, {
+    const response = await fetch(`${API_BASE_URL}/api/recommended-courses?user_id=${userId}&k=${k}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
