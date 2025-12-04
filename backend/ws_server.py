@@ -41,7 +41,7 @@ app.add_middleware(
 # ================================
 # MySQL DB 연결 설정
 # ================================
-DB_URL = "mysql+pymysql://root:12345@localhost/Users"
+DB_URL = "mysql+pymysql://root:1234@localhost/Users"
 engine = create_engine(DB_URL, echo=False)
 
 def get_user_name(user_id: str) -> str:
