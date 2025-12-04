@@ -195,7 +195,7 @@ export function NearbyMap({ nearbyLocations, setNearbyLocations }: NearbyMapProp
                   <div className="w-3 h-3 bg-red-500 rounded-full"></div>
                   <div>
                     <p className="text-xs font-medium text-[#2e2d52]">
-                      {user.id.substring(0, 10)}...
+                      {user.name || user.userId || user.id}
                     </p>
                   </div>
                 </div>

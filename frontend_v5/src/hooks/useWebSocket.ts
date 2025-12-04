@@ -4,6 +4,7 @@ import { WS_ENDPOINT } from '../config/api';
 export interface UserLocation {
   id: string;
   userId?: string;
+  name?: string;
   latitude: number;
   longitude: number;
   timestamp: string;
