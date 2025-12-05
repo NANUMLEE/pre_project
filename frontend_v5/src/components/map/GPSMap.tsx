@@ -82,8 +82,8 @@ export function GPSMap({
   const { isConnected, otherUsers, sendLocation } = useWebSocket(clientId, wsUrl, userId);
 
   useEffect(() => {
-    console.log('GPSMap mounted - GPS 추적 시작');
-    console.log('🔐 로그인 상태:', isLoggedIn ? `userId: ${userId}` : '로그인하지 않음');
+    // console.log('GPSMap mounted - GPS 추적 시작');
+    // console.log('🔐 로그인 상태:', isLoggedIn ? `userId: ${userId}` : '로그인하지 않음');
 
     // 로그인하지 않은 사용자는 위치 공유 불가
     if (!isLoggedIn) {
@@ -100,59 +100,67 @@ export function GPSMap({
     }
 
     /**
-     * GPS 실시간 위치 추적
+     * GPS 실시간 위치 추적 (10초마다)
      * - enableHighAccuracy: true → 더 정확한 위치 (배터리 많이 사용)
      * - maximumAge: 0 → 캐시 사용 안 함 (항상 최신 위치)
      * - timeout: 10000 → 10초 이내에 위치를 못 가져오면 오류
      */
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        const newPosition: GPSPosition = {
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-        };
-        console.log('GPS 위치 업데이트:', newPosition);
-        setPosition(newPosition);
-        setError(null);
-        setIsLoading(false);
+    const updatePosition = () => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const newPosition: GPSPosition = {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          };
+          // console.log('GPS 위치 업데이트 (10초 주기):', newPosition);
+          setPosition(newPosition);
+          setError(null);
+          setIsLoading(false);
 
-        // WebSocket으로 위치 정보 전송 (다른 사용자들이 볼 수 있도록)
-        if (isConnected && showOtherUsers) {
-          sendLocation(pos.coords.latitude, pos.coords.longitude);
+          // WebSocket으로 위치 정보 전송 (다른 사용자들이 볼 수 있도록)
+          if (isConnected && showOtherUsers) {
+            sendLocation(pos.coords.latitude, pos.coords.longitude);
+          }
+
+          // 부모 컴포넌트에 위치 변경 알림 (Running 컴포넌트에서 거리/시간 계산)
+          if (onPositionChange) {
+            onPositionChange(newPosition);
+          }
+        },
+        (err) => {
+          console.error('GPS 오류:', err);
+          console.error('오류 코드:', err.code, '오류 메시지:', err.message);
+
+          let errorMessage = `GPS 오류: ${err.message}`;
+          if (err.code === err.PERMISSION_DENIED) {
+            errorMessage = '위치 권한이 거부되었습니다. 브라우저 설정에서 위치 권한을 허용해주세요.';
+          } else if (err.code === err.POSITION_UNAVAILABLE) {
+            errorMessage = 'GPS 신호를 찾을 수 없습니다. 실외에서 시도해주세요.';
+          } else if (err.code === err.TIMEOUT) {
+            errorMessage = 'GPS 위치 접근 시간 초과. 다시 시도해주세요.';
+          }
+
+          setError(errorMessage);
+          setIsLoading(false);
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 0,
+          timeout: 10000,
         }
+      );
+    };
 
-        // 부모 컴포넌트에 위치 변경 알림 (Running 컴포넌트에서 거리/시간 계산)
-        if (onPositionChange) {
-          onPositionChange(newPosition);
-        }
-      },
-      (err) => {
-        console.error('GPS 오류:', err);
-        console.error('오류 코드:', err.code, '오류 메시지:', err.message);
+    // 즉시 한 번 실행
+    updatePosition();
 
-        let errorMessage = `GPS 오류: ${err.message}`;
-        if (err.code === err.PERMISSION_DENIED) {
-          errorMessage = '위치 권한이 거부되었습니다. 브라우저 설정에서 위치 권한을 허용해주세요.';
-        } else if (err.code === err.POSITION_UNAVAILABLE) {
-          errorMessage = 'GPS 신호를 찾을 수 없습니다. 실외에서 시도해주세요.';
-        } else if (err.code === err.TIMEOUT) {
-          errorMessage = 'GPS 위치 접근 시간 초과. 다시 시도해주세요.';
-        }
-
-        setError(errorMessage);
-        setIsLoading(false);
-      },
-      {
-        enableHighAccuracy: true,
-        maximumAge: 0,
-        timeout: 30000, // 30초로 증가 (GPS 신호 약할 때)
-      }
-    );
+    // 10초마다 반복 실행
+    const intervalId = setInterval(updatePosition, 10000);
 
     // 컴포넌트 언마운트 시 GPS 추적 중지 (배터리 절약)
     return () => {
-      console.log('GPSMap unmounted - GPS 추적 중지');
-      navigator.geolocation.clearWatch(watchId);
+      // console.log('GPSMap unmounted - GPS 추적 중지');
+      clearInterval(intervalId);
     };
   }, [onPositionChange, isConnected, sendLocation, showOtherUsers]);
 
@@ -173,7 +181,7 @@ export function GPSMap({
         distance: user.distance
       }));
       setNearbyUsers(usersWithDistance);
-      console.log(`🔍 ${filtered.length}명의 근처 사용자 발견`, usersWithDistance);
+      // console.log(`🔍 ${filtered.length}명의 근처 사용자 발견`, usersWithDistance);
     } else {
       setNearbyUsers([]);
     }

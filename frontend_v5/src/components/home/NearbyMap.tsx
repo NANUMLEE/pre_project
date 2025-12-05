@@ -52,8 +52,8 @@ export function NearbyMap({ nearbyLocations, setNearbyLocations }: NearbyMapProp
   // GPS 위치 변경 시 거리 재계산 (실시간 근처 러너만)
   const handlePositionChange = (position: { lat: number; lng: number }) => {
     setMyPosition(position);
-    // 첫 위치 감지 시에만 코스 로드 (nearbyLocations이 비어있을 때만)
-    if (userId && nearbyLocations.length === 0) {
+    // 첫 위치 감지 시에만 코스 로드 (nearbyLocations이 비어있고, 로딩 중이 아닐 때만)
+    if (userId && nearbyLocations.length === 0 && !isLoading) {
       console.log('🔄 첫 위치 감지됨, 주변 코스 API 호출');
       fetchNearbyRunningCourses(position.lat, position.lng);
     }
@@ -97,8 +97,10 @@ export function NearbyMap({ nearbyLocations, setNearbyLocations }: NearbyMapProp
       console.log('🌐 주변 러닝 코스 API 요청:', url);
 
       const response = await fetch(url, {
+        method: 'GET',
         headers: {
-          'ngrok-skip-browser-warning': 'true'
+          'ngrok-skip-browser-warning': 'true',
+          'Accept': 'application/json'
         }
       });
 

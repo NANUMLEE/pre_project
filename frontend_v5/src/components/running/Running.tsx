@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Play, Pause, Square, ArrowLeft } from 'lucide-react';
 import { Button } from '../ui/button';
+import VoiceCommandButton from '../VoiceCommandButton';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -78,6 +79,19 @@ export function Running({ course, onComplete, onBack }: RunningProps) {
   // 이모티콘 목록
   const EMOJI_LIST = ['🙌', '🔥', '💪'];
 
+  // 이모티콘 타입을 실제 이모지로 변환
+  const getEmojiIcon = (emojiType: string): string => {
+    const emojiMap: Record<string, string> = {
+      'FIGHTING': '💪',
+      'HIGHFIVE': '🙌',
+      'FIRE': '🔥',
+      '파이팅': '💪',
+      '하이파이브': '🙌',
+      '열정': '🔥',
+    };
+    return emojiMap[emojiType] || emojiType;
+  };
+
   // 로그인 여부 확인
   const userId = localStorage.getItem('userId');
   const isLoggedIn = !!userId;
@@ -92,44 +106,53 @@ export function Running({ course, onComplete, onBack }: RunningProps) {
     userId || undefined
   );
 
-  // GPS 위치 실시간 추적 및 WebSocket 전송
+  // GPS 위치 실시간 추적 및 WebSocket 전송 (10초마다)
   useEffect(() => {
     if (!navigator.geolocation) {
       console.error('GPS not supported');
       return;
     }
 
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        const newPosition: GPSPosition = {
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-        };
-        console.log('GPS 위치 업데이트:', newPosition);
-        setCurrentPosition(newPosition);
+    // GPS 위치 가져오는 함수
+    const updatePosition = () => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const newPosition: GPSPosition = {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          };
+          // console.log('GPS 위치 업데이트 (10초 주기):', newPosition);
+          setCurrentPosition(newPosition);
 
-        // WebSocket으로 위치 전송 (로그인했을 때만)
-        if (isLoggedIn && isConnected) {
-          sendLocation(newPosition.lat, newPosition.lng);
-        }
+          // WebSocket으로 위치 전송 (로그인했을 때만)
+          if (isLoggedIn && isConnected) {
+            sendLocation(newPosition.lat, newPosition.lng);
+          }
 
-        // 러닝 중일 때만 거리 계산
-        if (isRunning && !isPaused) {
-          handlePositionChange(newPosition);
+          // 러닝 중일 때만 거리 계산
+          if (isRunning && !isPaused) {
+            handlePositionChange(newPosition);
+          }
+        },
+        (err) => {
+          console.error('GPS 오류:', err);
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 0,
+          timeout: 10000,
         }
-      },
-      (err) => {
-        console.error('GPS 오류:', err);
-      },
-      {
-        enableHighAccuracy: true,
-        maximumAge: 0,
-        timeout: 10000,
-      }
-    );
+      );
+    };
+
+    // 즉시 한 번 실행
+    updatePosition();
+
+    // 10초마다 반복 실행
+    const intervalId = setInterval(updatePosition, 10000);
 
     return () => {
-      navigator.geolocation.clearWatch(watchId);
+      clearInterval(intervalId);
     };
   }, [isRunning, isPaused, isLoggedIn, isConnected, sendLocation]);
 
@@ -329,8 +352,11 @@ export function Running({ course, onComplete, onBack }: RunningProps) {
             transform: 'translate(-50%, -50%)'
           }}
         >
-          <div style={{ fontSize: '200px', textShadow: '0 4px 8px rgba(0,0,0,0.3)' }}>
-            {receivedEmoji.emoji}
+          <div style={{
+            fontSize: window.innerWidth < 768 ? '100px' : '150px',
+            textShadow: '0 4px 8px rgba(0,0,0,0.3)'
+          }}>
+            {getEmojiIcon(receivedEmoji.emoji)}
           </div>
         </div>
       )}
@@ -454,7 +480,7 @@ export function Running({ course, onComplete, onBack }: RunningProps) {
                 <Popup>
                   <div className="text-xs">
                     <div className="font-semibold text-orange-600 mb-2">
-                      {user.id.substring(0, 10)}...
+                      {user.name || user.userId || user.id}
                     </div>
                     <div className="text-[#787878] text-xs font-semibold mb-2">
                       거리: {currentPosition ?
@@ -588,6 +614,18 @@ export function Running({ course, onComplete, onBack }: RunningProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 음성 명령 플로팅 버튼 */}
+      {isLoggedIn && userId && (
+        <VoiceCommandButton
+          userId={userId}
+          compact={true}
+          onResult={(result) => {
+            console.log('음성 명령 결과:', result);
+            // 필요시 추가 처리 (예: 이모티콘 전송, 주변 러너 정보 표시 등)
+          }}
+        />
+      )}
     </div>
   );
 }

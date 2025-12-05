@@ -22,10 +22,11 @@ WebSocket 서버 - 실시간 GPS 위치 공유
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
-from typing import Set
+from typing import Set, List, Dict
 import json
 import uvicorn
 from sqlalchemy import create_engine, text
+import math
 
 # FastAPI 앱 생성
 app = FastAPI(title="GPS Location Sharing Server")
@@ -270,15 +271,36 @@ async def websocket_endpoint(websocket: WebSocket):
                 print(f"🎯 이모티콘 메시지 수신: {from_user} → {to_user} : {emoji}")
                 print(f"📋 현재 연결된 사용자: {list(manager.client_to_user.values())}")
 
+                # 🔧 항상 서버에서 발신자 이름 조회 (프론트엔드 값 무시)
+                from_user_name = None
+
+                # 1순위: user_locations에서 조회
+                if from_user in manager.user_locations:
+                    from_user_name = manager.user_locations[from_user].get("name")
+                    print(f"✅ user_locations에서 조회: {from_user_name}")
+
+                # 2순위: DB에서 조회
+                if not from_user_name:
+                    print(f"⚠️ user_locations에 없음. DB에서 조회 시도...")
+                    from_user_name = get_user_name(from_user)
+                    print(f"✅ DB에서 조회한 이름: {from_user_name}")
+
+                # 3순위: 기본값
+                if not from_user_name or from_user_name == from_user:
+                    from_user_name = f"러너{from_user}"
+                    print(f"⚠️ 이름 조회 실패. 기본값 사용: {from_user_name}")
+
                 emoji_message = {
                     "type": "emoji",
                     "from": from_user,
+                    "fromUserName": from_user_name,  # ✨ 보낸 사람 이름 추가
                     "to": to_user,
                     "emoji": emoji,
                     "timestamp": datetime.now().isoformat()
                 }
 
-                print(f"😀 이모티콘 전송: {from_user} → {to_user} : {emoji}")
+                print(f"😀 이모티콘 전송: {from_user_name} ({from_user}) → {to_user} : {emoji}")
+                print(f"📤 전송 데이터: {emoji_message}")
 
                 # 받는 사용자에게만 메시지 전송
                 await manager.send_to_user(to_user, emoji_message)
@@ -373,6 +395,208 @@ async def delete_all_invalid_users():
         "deleted_users": invalid_users,
         "remaining_users": len(manager.user_locations)
     }
+
+
+@app.post("/api/send-emoji")
+async def send_emoji(request: dict):
+    """
+    이모티콘 전송 API (음성 명령용)
+
+    요청 형식:
+    {
+        "from_user_id": "1",
+        "to_user_ids": ["2", "3"],  # 또는 ["ALL"]
+        "emoji_type": "FIGHTING"  # FIGHTING, HIGHFIVE, FIRE
+    }
+    """
+    try:
+        from_user_id = request.get("from_user_id")
+        to_user_ids = request.get("to_user_ids", [])
+        emoji_type = request.get("emoji_type", "FIGHTING")
+
+        print(f"\n{'='*60}")
+        print(f"😀 이모티콘 전송 요청")
+        print(f"   - from: {from_user_id}")
+        print(f"   - to: {to_user_ids}")
+        print(f"   - emoji: {emoji_type}")
+
+        # 보낸 사람의 이름 조회
+        from_user_name = "알 수 없음"
+        if from_user_id in manager.user_locations:
+            from_user_name = manager.user_locations[from_user_id].get("name", from_user_id)
+        else:
+            # user_locations에 없으면 DB에서 직접 조회
+            from_user_name = get_user_name(from_user_id)
+
+        print(f"   - from_name: {from_user_name}")
+
+        sent_count = 0
+
+        # "ALL"이면 모든 사용자에게 전송 (자기 자신 제외)
+        if "ALL" in to_user_ids:
+            for user_id in manager.user_locations.keys():
+                if user_id != from_user_id:
+                    emoji_message = {
+                        "type": "emoji",
+                        "from": from_user_id,
+                        "fromUserName": from_user_name,  # ✨ 보낸 사람 이름 추가
+                        "to": user_id,
+                        "emoji": emoji_type,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                    await manager.send_to_user(user_id, emoji_message)
+                    sent_count += 1
+        else:
+            # 특정 사용자들에게만 전송
+            for user_id in to_user_ids:
+                emoji_message = {
+                    "type": "emoji",
+                    "from": from_user_id,
+                    "fromUserName": from_user_name,  # ✨ 보낸 사람 이름 추가
+                    "to": user_id,
+                    "emoji": emoji_type,
+                    "timestamp": datetime.now().isoformat()
+                }
+                await manager.send_to_user(user_id, emoji_message)
+                sent_count += 1
+
+        print(f"✅ 이모티콘 전송 완료: {sent_count}명")
+        print(f"{'='*60}\n")
+
+        return {
+            "success": True,
+            "sent_count": sent_count,
+            "message": f"{sent_count}명에게 이모티콘을 보냈습니다"
+        }
+
+    except Exception as e:
+        print(f"❌ 이모티콘 전송 실패: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+# ================================
+# 음성 명령을 위한 주변 러너 조회 API
+# ================================
+
+def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """
+    Haversine 공식을 사용하여 두 좌표 간의 거리를 계산 (단위: km)
+
+    Args:
+        lat1, lon1: 첫 번째 지점의 위도/경도
+        lat2, lon2: 두 번째 지점의 위도/경도
+
+    Returns:
+        float: 두 지점 간의 거리 (km)
+    """
+    R = 6371  # 지구 반지름 (km)
+
+    lat1_rad = math.radians(lat1)
+    lat2_rad = math.radians(lat2)
+    delta_lat = math.radians(lat2 - lat1)
+    delta_lon = math.radians(lon2 - lon1)
+
+    a = math.sin(delta_lat / 2) ** 2 + \
+        math.cos(lat1_rad) * math.cos(lat2_rad) * \
+        math.sin(delta_lon / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    distance = R * c
+    return distance
+
+
+@app.get("/api/nearby-runners/{user_id}")
+async def get_nearby_runners(user_id: str, radius_km: float = 10.0):
+    """
+    특정 사용자 주변의 러너 목록 반환 (음성 명령 API용)
+
+    Args:
+        user_id: 조회할 사용자의 ID
+        radius_km: 검색 반경 (km, 기본값: 10km)
+
+    Returns:
+        {
+            "user_id": "user123",
+            "user_location": {"latitude": 37.5, "longitude": 127.0},
+            "radius_km": 10.0,
+            "runners": [
+                {"id": "user456", "name": "김시현"},
+                {"id": "user789", "name": "박신혜"}
+            ]
+        }
+    """
+    try:
+        # 요청한 사용자의 위치 정보 조회
+        user_location = manager.user_locations.get(user_id)
+
+        if not user_location:
+            print(f"⚠️  사용자 '{user_id}'의 위치 정보를 찾을 수 없음")
+            return {
+                "user_id": user_id,
+                "user_location": None,
+                "radius_km": radius_km,
+                "runners": []
+            }
+
+        user_lat = user_location["latitude"]
+        user_lon = user_location["longitude"]
+
+        print(f"\n{'='*60}")
+        print(f"🔍 주변 러너 조회: user_id={user_id}")
+        print(f"📍 사용자 위치: ({user_lat:.4f}, {user_lon:.4f})")
+        print(f"📏 검색 반경: {radius_km}km")
+
+        # 주변 러너 필터링
+        nearby_runners = []
+        for other_user_id, other_location in manager.user_locations.items():
+            # 자기 자신은 제외
+            if other_user_id == user_id:
+                continue
+
+            other_lat = other_location["latitude"]
+            other_lon = other_location["longitude"]
+            other_name = other_location.get("name", other_user_id)
+
+            # 거리 계산
+            distance = calculate_distance(user_lat, user_lon, other_lat, other_lon)
+
+            if distance <= radius_km:
+                nearby_runners.append({
+                    "id": other_user_id,
+                    "name": other_name,
+                    "distance_km": round(distance, 2)
+                })
+                print(f"  ✅ {other_name} ({other_user_id}): {distance:.2f}km")
+
+        print(f"👥 검색 결과: {len(nearby_runners)}명")
+        print(f"{'='*60}\n")
+
+        return {
+            "user_id": user_id,
+            "user_location": {
+                "latitude": user_lat,
+                "longitude": user_lon
+            },
+            "radius_km": radius_km,
+            "runners": nearby_runners
+        }
+
+    except Exception as e:
+        print(f"❌ 주변 러너 조회 실패: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "user_id": user_id,
+            "user_location": None,
+            "radius_km": radius_km,
+            "runners": [],
+            "error": str(e)
+        }
 
 
 if __name__ == "__main__":

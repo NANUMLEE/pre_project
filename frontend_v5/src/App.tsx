@@ -91,6 +91,13 @@ export default function App() {
   useEffect(() => {
     const loadCaloriesForCourses = async () => {
       if (user && user.id && coursesData.length > 0) {
+        // 이미 칼로리 정보가 있는 코스는 스킵
+        const hasCalories = coursesData.some(course => course.expectedCalories !== undefined);
+        if (hasCalories) {
+          console.log('칼로리 정보 이미 로드됨, 스킵');
+          return;
+        }
+
         try {
           const userId = parseInt(user.id, 10);
           console.log('칼로리 정보 로드 시작:', userId, 'user_id, 코스 개수:', coursesData.length);
@@ -114,7 +121,7 @@ export default function App() {
     };
 
     loadCaloriesForCourses();
-  }, [user]);
+  }, [user, coursesData]);
 
   // 온보딩 완료 시
   const handleOnboardingComplete = () => {

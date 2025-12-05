@@ -22,6 +22,10 @@ from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
 import openrouteservice
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import uuid
+import httpx
+from fastapi import File, UploadFile, Form
+from fastapi.staticfiles import StaticFiles
 
 # 환경 변수 로드
 load_dotenv()
@@ -157,11 +161,26 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,  # credentials를 False로 변경 (allow_origins=["*"]와 함께 사용 불가)
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"]
 )
+
+# =========================
+# 음성 명령 기능 설정
+# =========================
+
+# TTS 파일 저장 디렉토리
+TTS_DIR = os.path.join(base_dir, "tts")
+os.makedirs(TTS_DIR, exist_ok=True)
+
+# StaticFiles로 /tts 경로 서빙
+app.mount("/tts", StaticFiles(directory=TTS_DIR), name="tts")
+
+# ws_server.py 주소 (포트 8080)
+# ngrok URL로 변경 (ws_server가 다른 컴퓨터에서 실행 중)
+WS_SERVER_URL = "https://pa-unamazed-michiko.ngrok-free.dev"
 
 # ================================
 # Pydantic 데이터 모델
@@ -937,6 +956,213 @@ def get_course_calorie_info(user_id: int, course_name: str = None, course_index:
 @app.get("/")
 def root():
     return {"message": "Runnerism API 서버 작동 중!"}
+
+
+# ================================
+#     음성 명령 API
+# ================================
+
+async def get_nearby_runners_from_ws(user_id: str):
+    """
+    ws_server.py에서 주변 러너 정보를 가져옴
+
+    Returns:
+        List[Dict]: [{"id": "1", "name": "김시현"}, ...]
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{WS_SERVER_URL}/api/nearby-runners/{user_id}",
+                timeout=5.0
+            )
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("runners", [])
+            else:
+                print(f"⚠️  ws_server 응답 실패: {response.status_code}")
+                return []
+    except Exception as e:
+        print(f"❌ ws_server 연결 실패: {e}")
+        # ws_server가 꺼져있어도 빈 리스트 반환 (에러는 발생시키지 않음)
+        return []
+
+
+@app.post("/api/voice-command")
+async def voice_command(
+    userId: str = Form(...),
+    file: UploadFile = File(...)
+):
+    """
+    음성 명령 처리 API
+
+    입력:
+        - userId: 사용자 ID (Form)
+        - file: 음성 파일 Blob (File)
+
+    출력:
+        {
+            "intent": "ASK_NEARBY_RUNNER_WHO",
+            "rawText": "주변에 누가 뛰고 있어",
+            "ttsText": "김시현, 박신혜 등 4명이 뛰고 있습니다.",
+            "audioUrl": "/tts/response_xxx.mp3",
+            "emojiType": "FIGHTING",
+            "targetName": "김시현"
+        }
+    """
+    try:
+        print(f"\n{'='*60}")
+        print(f"🎤 음성 명령 요청 - userId: {userId}")
+
+        # 1) 업로드된 파일을 bytes로 읽기
+        audio_bytes = await file.read()
+        print(f"📦 오디오 크기: {len(audio_bytes)} bytes")
+
+        # 2) ws_server에서 주변 러너 정보 가져오기
+        nearby_runners = await get_nearby_runners_from_ws(userId)
+        print(f"👥 주변 러너: {len(nearby_runners)}명")
+
+        # 3) 고유한 TTS 파일명 생성
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        mp3_filename = f"response_{userId}_{timestamp}_{uuid.uuid4().hex[:8]}.mp3"
+        mp3_path = os.path.join(TTS_DIR, mp3_filename)
+
+        # 4) 음성 처리 파이프라인 실행
+        # runner_voice_model_memory.py의 run_pipeline_bytes 사용
+        sys.path.insert(0, os.path.join(os.path.dirname(base_dir), "whisper_project"))
+        from runner_voice_model_memory import run_pipeline_bytes
+
+        result = await run_pipeline_bytes(
+            audio_bytes=audio_bytes,
+            nearby_runners=nearby_runners,
+            out_path=mp3_path,
+            from_user_id=userId
+        )
+
+        # 5) 결과 추출
+        command_info = result["command_info"]
+        tts_text = result["tts_text"]
+        intent = command_info["intent"]
+        raw_text = command_info["raw_text"]
+
+        print(f"🎧 STT 결과: {raw_text}")
+        print(f"🧠 Intent: {intent}")
+        print(f"🗣  TTS 문장: {tts_text}")
+        print(f"💾 MP3 저장: {mp3_filename}")
+
+        # 6) 이모티콘 전송 처리 (SEND_EMOJI_BROADCAST 또는 SEND_EMOJI_DIRECT)
+        if intent in ("SEND_EMOJI_BROADCAST", "SEND_EMOJI_DIRECT"):
+            try:
+                emoji_type = command_info.get("emoji_type") or "FIGHTING"
+
+                # 이모티콘 받을 사용자 결정
+                to_user_ids = []
+                if intent == "SEND_EMOJI_BROADCAST":
+                    to_user_ids = ["ALL"]
+                elif intent == "SEND_EMOJI_DIRECT":
+                    target_name = command_info.get("target_name")
+                    # nearby_runners에서 target_name과 일치하는 러너 찾기
+                    target = next(
+                        (r for r in nearby_runners if r.get("name") == target_name),
+                        None
+                    )
+                    if target:
+                        to_user_ids = [target.get("id")]
+
+                # ws_server에 이모티콘 전송 요청
+                if to_user_ids:
+                    async with httpx.AsyncClient() as client:
+                        emoji_response = await client.post(
+                            f"{WS_SERVER_URL}/api/send-emoji",
+                            json={
+                                "from_user_id": userId,
+                                "to_user_ids": to_user_ids,
+                                "emoji_type": emoji_type
+                            },
+                            timeout=5.0
+                        )
+                        if emoji_response.status_code == 200:
+                            print(f"✅ 이모티콘 전송 성공")
+                        else:
+                            print(f"⚠️  이모티콘 전송 실패: {emoji_response.status_code}")
+            except Exception as emoji_error:
+                print(f"⚠️  이모티콘 전송 중 오류 (계속 진행): {emoji_error}")
+
+        print(f"{'='*60}\n")
+
+        # 7) 응답 반환
+        return {
+            "intent": intent,
+            "rawText": raw_text,
+            "ttsText": tts_text,
+            "audioUrl": f"/tts/{mp3_filename}",
+            "emojiType": command_info.get("emoji_type"),
+            "targetName": command_info.get("target_name")
+        }
+
+    except Exception as e:
+        print(f"❌ 음성 명령 처리 실패: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/emoji-tts")
+async def emoji_tts(from_name: str, emoji_type: str):
+    """
+    이모티콘 수신 TTS 생성 API (Edge TTS)
+
+    파라미터:
+        - from_name: 보낸 사람 이름 (예: 스피드러너)
+        - emoji_type: 이모티콘 타입 (FIGHTING, HIGHFIVE, FIRE, 💪, 🙌, 🔥)
+
+    반환:
+        {
+            "success": true,
+            "audioUrl": "/tts/emoji_xxx.mp3",
+            "text": "스피드러너님이 화이팅 이모티콘을 보냈습니다."
+        }
+    """
+    try:
+        print(f"🔊 이모티콘 TTS 생성 요청: from_name={from_name}, emoji_type={emoji_type}")
+
+        # 이모티콘 타입을 한글 이름으로 변환
+        emoji_map = {
+            'FIGHTING': '화이팅',
+            'HIGHFIVE': '하이파이브',
+            'FIRE': '열정',
+            '💪': '화이팅',
+            '🙌': '하이파이브',
+            '🔥': '열정',
+        }
+        emoji_korean = emoji_map.get(emoji_type, '이모티콘')
+
+        # TTS 문장 생성
+        tts_text = f"{from_name}님이 {emoji_korean} 이모티콘을 보냈습니다."
+        print(f"📝 TTS 문장: {tts_text}")
+
+        # Edge TTS로 음성 파일 생성
+        import edge_tts
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        mp3_filename = f"emoji_{timestamp}_{uuid.uuid4().hex[:8]}.mp3"
+        mp3_path = os.path.join(TTS_DIR, mp3_filename)
+
+        # Edge TTS 실행 (비동기) - 한국어 여성 음성
+        communicate = edge_tts.Communicate(tts_text, "ko-KR-SunHiNeural")
+        await communicate.save(mp3_path)
+
+        print(f"✅ TTS 파일 생성 완료: {mp3_filename}")
+
+        return {
+            "success": True,
+            "audioUrl": f"/tts/{mp3_filename}",
+            "text": tts_text
+        }
+
+    except Exception as e:
+        print(f"❌ 이모티콘 TTS 생성 실패: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
