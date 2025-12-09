@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { Play, Pause, Square, ArrowLeft } from 'lucide-react';
 import { Button } from '../ui/button';
 import VoiceCommandButton from '../VoiceCommandButton';
+import WakewordListener from '../WakewordListener';
+import type { VoiceCommandResult } from '../../hooks/useWakewordDetection';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -67,6 +69,9 @@ export function Running({ course, onComplete, onBack }: RunningProps) {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [receivedEmoji, setReceivedEmoji] = useState<{ emoji: string; from: string } | null>(null);
   const intervalRef = useRef<number | null>(null);
+
+  // ✨ Wakeword 관련 state (신규)
+  const [isWakewordActive, setIsWakewordActive] = useState(false);
 
   // 코스 데이터 확인
   useEffect(() => {
@@ -258,6 +263,20 @@ export function Running({ course, onComplete, onBack }: RunningProps) {
     setPreviousPosition(newPosition);
   };
 
+  // ✨ Running 페이지 진입 시 Wakeword만 미리 활성화 (러닝은 수동 시작)
+  useEffect(() => {
+    if (isLoggedIn) {
+      console.log('🎙️ Running 페이지 진입 → Wakeword 미리 활성화');
+      setIsWakewordActive(true);
+    }
+
+    // 페이지 떠날 때 Wakeword 비활성화
+    return () => {
+      console.log('⏹️ Running 페이지 종료 → Wakeword 비활성화');
+      setIsWakewordActive(false);
+    };
+  }, [isLoggedIn]);
+
   const handleStart = () => {
     // 로그인하지 않은 사용자는 러닝 시작 불가
     if (!isLoggedIn) {
@@ -268,6 +287,7 @@ export function Running({ course, onComplete, onBack }: RunningProps) {
 
     setIsRunning(true);
     setIsPaused(false);
+    console.log('🏃 러닝 시작! (Wakeword는 이미 활성화됨)');
   };
 
   const handlePause = () => {
@@ -312,6 +332,28 @@ export function Running({ course, onComplete, onBack }: RunningProps) {
 
   const handleBackConfirm = () => {
     onBack?.();
+  };
+
+  // ✨ Wakeword 명령어 결과 처리 핸들러 (신규)
+  const handleWakewordCommand = (result: VoiceCommandResult) => {
+    console.log('🎯 음성 명령 처리:', result);
+
+    // 이모티콘 전송 명령어 처리
+    if (result.intent === 'send_emoji' && result.emojiType && result.targetName) {
+      // 타겟 사용자 찾기 (이름 또는 ID로)
+      const targetUser = otherUsers.find(user =>
+        user.name?.includes(result.targetName!) ||
+        user.userId?.includes(result.targetName!)
+      );
+
+      if (targetUser) {
+        // WebSocket으로 이모티콘 전송
+        sendEmoji(targetUser.id, result.emojiType);
+        console.log(`✅ ${targetUser.name}님에게 ${result.emojiType} 이모티콘 전송`);
+      } else {
+        console.warn(`⚠️ "${result.targetName}" 사용자를 찾을 수 없습니다`);
+      }
+    }
   };
 
   return (
@@ -632,9 +674,21 @@ export function Running({ course, onComplete, onBack }: RunningProps) {
         <VoiceCommandButton
           userId={userId}
           compact={true}
-          onResult={(result) => {
-            console.log('음성 명령 결과:', result);
-            // 필요시 추가 처리 (예: 이모티콘 전송, 주변 러너 정보 표시 등)
+          onResult={handleWakewordCommand}
+        />
+      )}
+
+      {/* ✨ Wakeword 리스너 (신규) */}
+      {isLoggedIn && userId && isWakewordActive && (
+        <WakewordListener
+          userId={userId}
+          wakewords={['헤이 리즘', '헤이리즘', '헤이 리즘아']}
+          onCommandResult={handleWakewordCommand}
+          onTTSStart={() => {
+            console.log('🔊 TTS 재생 시작');
+          }}
+          onTTSEnd={() => {
+            console.log('✅ TTS 재생 완료');
           }}
         />
       )}

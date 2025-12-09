@@ -996,6 +996,58 @@ async def get_nearby_runners_from_ws(user_id: str):
         return []
 
 
+@app.post("/api/stt")
+async def stt_only(file: UploadFile = File(...)):
+    """
+    간단한 STT 전용 API (Wakeword 감지용)
+    - 음성 파일만 받아서 텍스트만 반환
+    - Intent 파싱 없음
+
+    출력:
+        {
+            "success": True,
+            "text": "리즘아 주변에 누가 뛰고 있어"
+        }
+    """
+    try:
+        print(f"\n{'='*60}")
+        print(f"🎤 STT 요청 (Wakeword 감지용)")
+
+        # 1) 업로드된 파일을 bytes로 읽기
+        audio_bytes = await file.read()
+        print(f"📦 오디오 크기: {len(audio_bytes)} bytes")
+
+        # 2) Whisper STT만 수행
+        if run_pipeline_bytes_no_tts is None:
+            raise Exception("voice model이 로드되지 않았습니다")
+
+        # 간단한 STT만 호출 (임시로 빈 nearby_runners 전달)
+        result = await run_pipeline_bytes_no_tts(
+            audio_bytes=audio_bytes,
+            nearby_runners=[],
+            from_user_id="temp"
+        )
+
+        raw_text = result["command_info"]["raw_text"]
+        print(f"🎧 STT 결과: {raw_text}")
+        print(f"{'='*60}\n")
+
+        return {
+            "success": True,
+            "text": raw_text
+        }
+
+    except Exception as e:
+        print(f"❌ STT 처리 실패: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "error": str(e),
+            "text": ""
+        }
+
+
 @app.post("/api/voice-command")
 async def voice_command(
     userId: str = Form(...),

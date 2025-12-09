@@ -276,7 +276,7 @@ export default function App() {
       )}
 
       {currentScreen === 'running' && (
-        <Running 
+        <Running
           course={selectedCourse}
           onComplete={handleRunComplete}
           onBack={() => setCurrentScreen('home')}
