@@ -1,5 +1,5 @@
 // API 기본 URL
-const API_BASE_URL = 'https://nana-nondefiant-jodee.ngrok-free.dev';
+import { API_BASE_URL } from '../config/api';
 
 // 사용자 데이터 타입
 export type StoredUser = {

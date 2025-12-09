@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { API_BASE_URL } from '../config/api';
+import { speakWithWebSpeech, stopSpeech } from '../utils/webSpeech';
 
 interface VoiceCommandButtonProps {
   userId: string;
@@ -8,10 +9,10 @@ interface VoiceCommandButtonProps {
 }
 
 interface VoiceCommandResult {
+  success: boolean;
   intent: string;
   rawText: string;
   ttsText: string;
-  audioUrl: string;
   emojiType?: string;
   targetName?: string;
 }
@@ -19,16 +20,22 @@ interface VoiceCommandResult {
 const VoiceCommandButton: React.FC<VoiceCommandButtonProps> = ({ userId, onResult, compact = false }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [lastResult, setLastResult] = useState<VoiceCommandResult | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
   // 녹음 시작
   const startRecording = useCallback(async () => {
     try {
+      // TTS 재생 중이면 중단
+      if (isSpeaking) {
+        stopSpeech();
+        setIsSpeaking(false);
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
       // MediaRecorder 설정
@@ -61,7 +68,7 @@ const VoiceCommandButton: React.FC<VoiceCommandButtonProps> = ({ userId, onResul
       console.error('녹음 시작 실패:', error);
       setStatusMessage('마이크 접근 권한이 필요합니다');
     }
-  }, []);
+  }, [isSpeaking]);
 
   // 녹음 종료
   const stopRecording = useCallback(() => {
@@ -95,13 +102,22 @@ const VoiceCommandButton: React.FC<VoiceCommandButtonProps> = ({ userId, onResul
 
       const result: VoiceCommandResult = await response.json();
 
-      console.log('음성 명령 결과:', result);
+      console.log('✅ 음성 명령 결과:', result);
       setLastResult(result);
       setStatusMessage(`"${result.rawText}"`);
 
-      // TTS 음성 재생
-      if (result.audioUrl) {
-        playAudio(`${API_BASE_URL}${result.audioUrl}`);
+      // Web Speech API로 TTS 재생
+      if (result.ttsText) {
+        setIsSpeaking(true);
+        speakWithWebSpeech(result.ttsText)
+          .then(() => {
+            console.log('✅ TTS 재생 완료');
+            setIsSpeaking(false);
+          })
+          .catch((error) => {
+            console.error('❌ TTS 재생 실패:', error);
+            setIsSpeaking(false);
+          });
       }
 
       // 콜백 호출
@@ -109,30 +125,16 @@ const VoiceCommandButton: React.FC<VoiceCommandButtonProps> = ({ userId, onResul
         onResult(result);
       }
     } catch (error) {
-      console.error('음성 명령 처리 실패:', error);
+      console.error('❌ 음성 명령 처리 실패:', error);
       setStatusMessage('음성 처리에 실패했습니다');
     } finally {
       setIsProcessing(false);
     }
   };
 
-  // TTS 음성 재생
-  const playAudio = (audioUrl: string) => {
-    if (audioPlayerRef.current) {
-      audioPlayerRef.current.pause();
-    }
-
-    const audio = new Audio(audioUrl);
-    audioPlayerRef.current = audio;
-
-    audio.play().catch(error => {
-      console.error('오디오 재생 실패:', error);
-    });
-  };
-
   // 클릭 이벤트 (Toggle 방식)
   const handleClick = () => {
-    if (isProcessing) return;
+    if (isProcessing || isSpeaking) return;
 
     if (isRecording) {
       // 녹음 중이면 종료
@@ -148,12 +150,12 @@ const VoiceCommandButton: React.FC<VoiceCommandButtonProps> = ({ userId, onResul
     return (
       <>
         <button
-          className={`floating-voice-button ${isRecording ? 'recording' : ''} ${isProcessing ? 'processing' : ''}`}
+          className={`floating-voice-button ${isRecording ? 'recording' : ''} ${isProcessing || isSpeaking ? 'processing' : ''}`}
           onClick={handleClick}
-          disabled={isProcessing}
-          title={isRecording ? '녹음 종료하려면 클릭' : isProcessing ? '처리 중...' : '녹음 시작하려면 클릭'}
+          disabled={isProcessing || isSpeaking}
+          title={isRecording ? '녹음 종료하려면 클릭' : isProcessing ? '처리 중...' : isSpeaking ? 'TTS 재생 중...' : '녹음 시작하려면 클릭'}
         >
-          {isRecording ? '🎤' : isProcessing ? '⏳' : '🎙️'}
+          {isRecording ? '🎤' : isProcessing ? '⏳' : isSpeaking ? '🔊' : '🎙️'}
         </button>
 
         <style>{`
@@ -225,9 +227,9 @@ const VoiceCommandButton: React.FC<VoiceCommandButtonProps> = ({ userId, onResul
     <div className="voice-command-container">
       {/* 음성 명령 버튼 */}
       <button
-        className={`voice-command-button ${isRecording ? 'recording' : ''} ${isProcessing ? 'processing' : ''}`}
+        className={`voice-command-button ${isRecording ? 'recording' : ''} ${isProcessing || isSpeaking ? 'processing' : ''}`}
         onClick={handleClick}
-        disabled={isProcessing}
+        disabled={isProcessing || isSpeaking}
       >
         <div className="button-content">
           {isRecording ? (
@@ -239,6 +241,11 @@ const VoiceCommandButton: React.FC<VoiceCommandButtonProps> = ({ userId, onResul
             <>
               <span className="processing-icon">⏳</span>
               <span className="button-text">처리 중...</span>
+            </>
+          ) : isSpeaking ? (
+            <>
+              <span className="processing-icon">🔊</span>
+              <span className="button-text">TTS 재생 중...</span>
             </>
           ) : (
             <>

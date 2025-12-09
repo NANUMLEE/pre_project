@@ -9,7 +9,6 @@ import tempfile
 import os
 
 import whisper
-import edge_tts
 
 
 # =========================
@@ -232,7 +231,8 @@ def handle_command_from_stt(command_info: dict,
         emoji_type = map_emoji_str_to_enum(command_info.get("emoji_type"))
         runner_ids = [r.get("id", "") for r in nearby_runners]
         send_emoji_to_runners(runner_ids, emoji_type, from_user_id=from_user_id)
-        return f"{len(nearby_runners)}명에게 이모티콘을 보냈습니다."
+        # 띄어쓰기 추가로 TTS 발음 개선
+        return f"{len(nearby_runners)} 명에게 이모티콘을 보냈습니다."
 
     # 3) 특정 러너에게 이모티콘
     if biz_intent == Intent.SEND_EMOJI_SINGLE:
@@ -250,60 +250,43 @@ def handle_command_from_stt(command_info: dict,
 
         send_emoji_to_runners([target.get("id", "")], emoji_type, from_user_id=from_user_id)
 
-        spoken_name = target.get("name", target_name) or "해당 러너"
-        return f"{spoken_name}에게 이모티콘을 보냈습니다."
+        # TTS 발음을 위해 이름 처리
+        raw_name = target.get("name", target_name) or "해당 러너"
+        # 긴 이름은 중간에 띄어쓰기 추가 (발음 개선)
+        if len(raw_name) > 4:
+            mid = len(raw_name) // 2
+            spoken_name = raw_name[:mid] + " " + raw_name[mid:]
+        else:
+            spoken_name = raw_name
+
+        # "님"과 이름 사이에 띄어쓰기 추가 (억양 개선)
+        return f"{spoken_name} 님에게 이모티콘을 보냈습니다."
 
     # 4) 알 수 없는 명령
     return "무슨 말인지 잘 이해하지 못했어요. 다시 한 번 말씀해 주세요."
 
 
 # =========================
-# 3. Edge TTS (텍스트 → 음성 mp3)
+# 3. 메모리 기반 전체 파이프라인
 # =========================
 
-async def text_to_speech(text: str, out_path: str = "response.mp3") -> io.BytesIO:
+async def run_pipeline_bytes_no_tts(audio_bytes: bytes,
+                                     nearby_runners: List[Runner],
+                                     from_user_id: Optional[str] = None) -> dict:
     """
-    입력 문장을 edge-tts로 mp3로 변환.
-    - mp3 BytesIO 리턴
-    - out_path 경로에 파일도 저장(디버그/서빙용)
-    """
-    communicate = edge_tts.Communicate(text, "ko-KR-SunHiNeural")
-    mp3_bytes = io.BytesIO()
-    async for chunk in communicate.stream():
-        if chunk["type"] == "audio":
-            mp3_bytes.write(chunk["data"])
-    mp3_bytes.seek(0)
+    STT + Intent 분류만 수행 (TTS 생성 제거)
+    Web Speech API로 전환하면서 서버에서는 텍스트만 반환
 
-    try:
-        with open(out_path, "wb") as f:
-            f.write(mp3_bytes.getvalue())
-        print(f"[DEBUG] {out_path} saved, size={len(mp3_bytes.getvalue())} bytes")
-    except Exception as e:
-        print("[DEBUG] mp3 파일 저장 실패:", e)
+    Args:
+        audio_bytes: 음성 바이트
+        nearby_runners: 주변 러너 목록
+        from_user_id: 현재 사용자 ID
 
-    return mp3_bytes
-
-
-# =========================
-# 4. 메모리 기반 전체 파이프라인
-# =========================
-
-async def run_pipeline_bytes(audio_bytes: bytes,
-                             nearby_runners: List[Runner],
-                             out_path: str = "response.mp3",
-                             from_user_id: Optional[str] = None) -> dict:
-    """
-    메모리의 음성 바이트를 받아:
-    1) 임시 파일로 저장
-    2) Whisper STT + 명령어 분류
-    3) 비즈니스 로직으로 TTS 문장 생성
-    4) Edge TTS로 mp3 생성
-    까지 수행.
-
-    FastAPI에서:
-        audio_bytes = await file.read()
-        result = await run_pipeline_bytes(audio_bytes, nearby_runners, out_path="...")
-    이런 식으로 사용.
+    Returns:
+        {
+            "command_info": {...},
+            "tts_text": "응답 텍스트"
+        }
     """
     # Whisper가 파일 경로를 받는 구조라 임시 파일로 한 번 저장
     tmp_path = None
@@ -320,17 +303,13 @@ async def run_pipeline_bytes(audio_bytes: bytes,
               "/ emoji:", command_info["emoji_type"],
               "/ target:", command_info["target_name"])
 
-        # 2) 비즈니스 로직으로 최종 TTS 문장 생성
+        # 2) 비즈니스 로직으로 TTS 문장 생성 (파일은 만들지 않음)
         tts_text = handle_command_from_stt(command_info, nearby_runners, from_user_id=from_user_id)
         print("🗣 TTS 문장:", tts_text)
-
-        # 3) TTS 음성 생성
-        await text_to_speech(tts_text, out_path=out_path)
 
         return {
             "command_info": command_info,
             "tts_text": tts_text,
-            "mp3_path": out_path,
         }
 
     finally:
@@ -342,8 +321,8 @@ async def run_pipeline_bytes(audio_bytes: bytes,
 
 
 # =========================
-# 5. 로컬 테스트용 main (선택)
-#    - 파일을 bytes로 읽어 run_pipeline_bytes 테스트
+# 4. 로컬 테스트용 main (선택)
+#    - 파일을 bytes로 읽어 run_pipeline_bytes_no_tts 테스트
 # =========================
 
 if __name__ == "__main__":
@@ -362,11 +341,10 @@ if __name__ == "__main__":
     ]
 
     result = asyncio.run(
-        run_pipeline_bytes(audio_bytes, nearby_runners, out_path="response.mp3", from_user_id="me")
+        run_pipeline_bytes_no_tts(audio_bytes, nearby_runners, from_user_id="me")
     )
 
     print("\n✅ 파이프라인 완료!")
     print("   - intent:", result["command_info"]["intent"])
     print("   - TTS 문장:", result["tts_text"])
-    print("   - mp3 파일:", result["mp3_path"])
 

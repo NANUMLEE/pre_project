@@ -493,8 +493,20 @@ export function Running({ course, onComplete, onBack }: RunningProps) {
                         <button
                           key={emoji}
                           onClick={() => {
+                            console.log('🎯 이모티콘 버튼 클릭:', {
+                              emoji,
+                              userId,
+                              targetUserId: user.id,
+                              targetUserName: user.name,
+                              isConnected,
+                              sendEmojiExists: !!sendEmoji
+                            });
+
                             if (userId) {
+                              console.log('✅ userId 존재, 전송 시도...');
                               sendEmoji(user.id, emoji);
+                            } else {
+                              console.error('❌ userId 없음! 로그인 필요');
                             }
                             setSelectedUserForEmoji(null);
                           }}

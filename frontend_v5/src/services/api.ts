@@ -1,6 +1,6 @@
 // API 서비스 - 백엔드와 통신
 
-const API_BASE_URL = 'https://nana-nondefiant-jodee.ngrok-free.dev';
+import { API_BASE_URL } from '../config/api';
 
 // 고유한 ID 생성 함수
 function generateId(): string {

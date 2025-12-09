@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { WS_ENDPOINT, API_BASE_URL } from '../config/api';
+import { speakWithWebSpeech } from '../utils/webSpeech';
 
 export interface UserLocation {
   id: string;
@@ -86,19 +87,23 @@ export function useWebSocket(
               to: data.to,
               emoji: data.emoji,
               현재userId: userId,
-              일치여부: data.to === userId
+              to타입: typeof data.to,
+              userId타입: typeof userId,
+              엄격비교: data.to === userId,
+              문자열비교: String(data.to) === String(userId)
             });
 
-            if (data.to === userId) {
+            // 타입 불일치 문제 해결: 문자열로 변환하여 비교
+            if (String(data.to) === String(userId)) {
               console.log(`😀 이모티콘 수신: ${data.fromUserName || data.from} → ${data.emoji}`);
 
-              // ✨ Edge TTS 음성 재생 (API 호출)
+              // ✨ Web Speech API로 TTS 재생
               const senderName = data.fromUserName || `러너${data.from}` || '익명';
               const emojiType = data.emoji || 'FIGHTING';
 
-              console.log(`🔊 Edge TTS API 호출: senderName="${senderName}", emojiType="${emojiType}"`);
+              console.log(`🔊 TTS 텍스트 생성: senderName="${senderName}", emojiType="${emojiType}"`);
 
-              // Edge TTS API 호출하여 음성 재생
+              // 서버에서 TTS 텍스트 가져오기
               fetch(`${API_BASE_URL}/api/emoji-tts?from_name=${encodeURIComponent(senderName)}&emoji_type=${encodeURIComponent(emojiType)}`, {
                 headers: {
                   'ngrok-skip-browser-warning': 'true',
@@ -107,35 +112,21 @@ export function useWebSocket(
               })
                 .then(res => res.json())
                 .then(result => {
-                  if (result.success && result.audioUrl) {
-                    console.log(`✅ TTS 파일 받음: ${result.audioUrl}`);
+                  if (result.success && result.text) {
+                    console.log(`✅ TTS 텍스트 받음: ${result.text}`);
 
-                    // 🔧 fetch로 MP3 파일 다운로드 (ngrok 헤더 포함)
-                    return fetch(`${API_BASE_URL}${result.audioUrl}`, {
-                      headers: {
-                        'ngrok-skip-browser-warning': 'true'
-                      }
-                    })
-                      .then(audioRes => audioRes.blob())
-                      .then(blob => {
-                        // Blob URL 생성 후 재생
-                        const blobUrl = URL.createObjectURL(blob);
-                        const audio = new Audio(blobUrl);
-                        audio.play()
-                          .then(() => {
-                            console.log('🔊 TTS 음성 재생 시작');
-                            // 재생 완료 후 Blob URL 해제
-                            audio.onended = () => URL.revokeObjectURL(blobUrl);
-                          })
-                          .catch(err => {
-                            console.error('❌ 오디오 재생 실패:', err);
-                            URL.revokeObjectURL(blobUrl);
-                          });
+                    // Web Speech API로 직접 재생
+                    speakWithWebSpeech(result.text)
+                      .then(() => {
+                        console.log('✅ TTS 재생 완료');
+                      })
+                      .catch(err => {
+                        console.error('❌ TTS 재생 실패:', err);
                       });
                   }
                 })
                 .catch(err => {
-                  console.error('❌ Edge TTS API 호출 실패:', err);
+                  console.error('❌ TTS 텍스트 가져오기 실패:', err);
                 });
 
               // 새로운 객체로 매번 업데이트 (React 감지용)
