@@ -130,16 +130,24 @@ export function useWebSocket(
                 });
 
               // 새로운 객체로 매번 업데이트 (React 감지용)
+              // ✨ 고유한 timestamp 생성 (React 리렌더링 보장)
+              const uniqueTimestamp = `${Date.now()}_${Math.random()}`;
               setOnEmojiReceived({
                 type: 'emoji',
                 from: data.from,
                 fromUserName: data.fromUserName,  // ✨ fromUserName 추가
                 to: data.to,
                 emoji: data.emoji,
-                timestamp: data.timestamp
+                timestamp: uniqueTimestamp  // ✨ 매번 새로운 값
               });
-              // 3초 후 초기화 (애니메이션 종료)
-              setTimeout(() => setOnEmojiReceived(null), 3000);
+
+              console.log(`✅ onEmojiReceived 상태 업데이트: ${uniqueTimestamp}`);
+
+              // 2초 후 초기화 (애니메이션 종료)
+              setTimeout(() => {
+                console.log('🔄 onEmojiReceived 초기화 (2초 후)');
+                setOnEmojiReceived(null);
+              }, 2000);
             } else {
               console.log(`⚠️ 다른 사용자의 이모티콘입니다. 무시됨.`);
             }

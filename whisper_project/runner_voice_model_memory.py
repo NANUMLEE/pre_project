@@ -82,6 +82,7 @@ def classify_command(text: str) -> dict:
         "intent": "UNKNOWN",   # ASK_NEARBY_RUNNER_WHO, ASK_NEARBY_RUNNER_COUNT, SEND_EMOJI_BROADCAST, SEND_EMOJI_DIRECT ...
         "scope": None,         # ALL / TARGET / None
         "target_name": None,   # 특정 러너 이름
+        "target_id": None,     # ✨ 특정 러너 ID (fuzzy matching 결과)
         "emoji_type": None,    # "FIGHTING" / "HIGHFIVE" / "FIRE"
         "raw_text": text.strip()
     }
@@ -210,29 +211,32 @@ def map_emoji_str_to_enum(emoji_str: Optional[str]) -> EmojiType:
 
 def handle_command_from_stt(command_info: dict,
                             nearby_runners: List[Runner],
-                            from_user_id: Optional[str] = None) -> str:
+                            from_user_id: Optional[str] = None) -> tuple[str, Optional[str]]:
     """
     STT 분류 결과(command_info)와 주변 러너 리스트를 기반으로
     최종적으로 TTS로 읽을 문장을 생성.
     이 함수 안에서 send_emoji_to_runners를 호출해서 실제 이모티콘 전송까지 가능.
+
+    반환:
+        (tts_text, target_id): TTS 문장과 대상 러너 ID (있는 경우)
     """
     stt_intent = command_info["intent"]
     biz_intent = map_stt_intent_to_business_intent(stt_intent)
 
     # 1) 주변 러너 상황(누가 / 몇 명)
     if biz_intent == Intent.NEARBY_RUNNERS_STATUS:
-        return runners_status_sentence(nearby_runners)
+        return runners_status_sentence(nearby_runners), None
 
     # 2) 전체 러너에게 이모티콘
     if biz_intent == Intent.SEND_EMOJI_ALL:
         if not nearby_runners:
-            return "주변에 러너가 존재하지 않습니다."
+            return "주변에 러너가 존재하지 않습니다.", None
 
         emoji_type = map_emoji_str_to_enum(command_info.get("emoji_type"))
         runner_ids = [r.get("id", "") for r in nearby_runners]
         send_emoji_to_runners(runner_ids, emoji_type, from_user_id=from_user_id)
         # 띄어쓰기 추가로 TTS 발음 개선
-        return f"{len(nearby_runners)} 명에게 이모티콘을 보냈습니다."
+        return f"{len(nearby_runners)} 명에게 이모티콘을 보냈습니다.", None
 
     # 3) 특정 러너에게 이모티콘
     if biz_intent == Intent.SEND_EMOJI_SINGLE:
@@ -240,15 +244,69 @@ def handle_command_from_stt(command_info: dict,
         emoji_type = map_emoji_str_to_enum(command_info.get("emoji_type"))
 
         # 이름 비교 시 띄어쓰기 무시 (STT는 "민트 러너", DB는 "민트러너")
-        target_name_normalized = target_name.replace(" ", "")
-        target = next(
-            (r for r in nearby_runners if r.get("name", "").replace(" ", "") == target_name_normalized),
-            None
-        )
-        if not target:
-            return "주변에 러너가 존재하지 않습니다."
+        target_name_normalized = target_name.replace(" ", "").lower()
 
-        send_emoji_to_runners([target.get("id", "")], emoji_type, from_user_id=from_user_id)
+        # 개선된 이름 매칭 로직 (정확 일치 → 부분 일치 → 유사도 매칭 순서로 시도)
+        target = None
+
+        # 1. 정확히 일치하는 이름 찾기
+        for r in nearby_runners:
+            runner_name_normalized = r.get("name", "").replace(" ", "").lower()
+            if runner_name_normalized == target_name_normalized:
+                target = r
+                print(f"[DEBUG] 정확 매칭 성공: {target_name} → {r.get('name')}")
+                break
+
+        # 2. 부분 일치 찾기 (예: "김시현" → "시현")
+        if not target:
+            for r in nearby_runners:
+                runner_name_normalized = r.get("name", "").replace(" ", "").lower()
+                # 양방향 부분 일치 체크
+                if target_name_normalized in runner_name_normalized or runner_name_normalized in target_name_normalized:
+                    target = r
+                    print(f"[DEBUG] 부분 매칭 성공: {target_name} → {r.get('name')}")
+                    break
+
+        # 3. 유사도 매칭 (Levenshtein Distance)
+        if not target:
+            # Levenshtein Distance 계산 함수
+            def levenshtein_distance(s1: str, s2: str) -> int:
+                if len(s1) < len(s2):
+                    return levenshtein_distance(s2, s1)
+                if len(s2) == 0:
+                    return len(s1)
+                previous_row = range(len(s2) + 1)
+                for i, c1 in enumerate(s1):
+                    current_row = [i + 1]
+                    for j, c2 in enumerate(s2):
+                        insertions = previous_row[j + 1] + 1
+                        deletions = current_row[j] + 1
+                        substitutions = previous_row[j] + (c1 != c2)
+                        current_row.append(min(insertions, deletions, substitutions))
+                    previous_row = current_row
+                return previous_row[-1]
+
+            best_match = None
+            best_distance = float('inf')
+
+            for r in nearby_runners:
+                runner_name_normalized = r.get("name", "").replace(" ", "").lower()
+                distance = levenshtein_distance(target_name_normalized, runner_name_normalized)
+                max_distance = max(2, len(runner_name_normalized) // 3)  # 길이의 1/3 또는 최소 2
+
+                if distance <= max_distance and distance < best_distance:
+                    best_match = r
+                    best_distance = distance
+
+            if best_match:
+                target = best_match
+                print(f"[DEBUG] 유사도 매칭 성공: {target_name} → {best_match.get('name')} (거리: {best_distance})")
+
+        if not target:
+            return "주변에 러너가 존재하지 않습니다.", None
+
+        target_id = target.get("id", "")
+        send_emoji_to_runners([target_id], emoji_type, from_user_id=from_user_id)
 
         # TTS 발음을 위해 이름 처리
         raw_name = target.get("name", target_name) or "해당 러너"
@@ -260,10 +318,10 @@ def handle_command_from_stt(command_info: dict,
             spoken_name = raw_name
 
         # "님"과 이름 사이에 띄어쓰기 추가 (억양 개선)
-        return f"{spoken_name} 님에게 이모티콘을 보냈습니다."
+        return f"{spoken_name} 님에게 이모티콘을 보냈습니다.", target_id
 
     # 4) 알 수 없는 명령
-    return "무슨 말인지 잘 이해하지 못했어요. 다시 한 번 말씀해 주세요."
+    return "무슨 말인지 잘 이해하지 못했어요. 다시 한 번 말씀해 주세요.", None
 
 
 # =========================
@@ -304,8 +362,13 @@ async def run_pipeline_bytes_no_tts(audio_bytes: bytes,
               "/ target:", command_info["target_name"])
 
         # 2) 비즈니스 로직으로 TTS 문장 생성 (파일은 만들지 않음)
-        tts_text = handle_command_from_stt(command_info, nearby_runners, from_user_id=from_user_id)
+        tts_text, target_id = handle_command_from_stt(command_info, nearby_runners, from_user_id=from_user_id)
         print("🗣 TTS 문장:", tts_text)
+
+        # target_id가 있으면 command_info에 추가
+        if target_id:
+            command_info["target_id"] = target_id
+            print("🎯 Target ID:", target_id)
 
         return {
             "command_info": command_info,

@@ -118,12 +118,28 @@ class ConnectionManager:
 
     async def send_to_user(self, to_user_id: str, message: dict):
         """특정 userId를 가진 클라이언트에게만 메시지 전송 (이모티콘용)"""
+        print(f"\n{'='*60}")
+        print(f"📤 send_to_user 호출")
+        print(f"   - to_user_id: {to_user_id} (타입: {type(to_user_id).__name__})")
+        print(f"   - message: {message}")
+        print(f"   - 현재 연결된 사용자: {list(self.client_to_user.values())}")
+        print(f"{'='*60}")
+
+        sent = False
         for connection, user_id in self.client_to_user.items():
-            if user_id == to_user_id:
+            print(f"🔍 비교: user_id={user_id} (타입: {type(user_id).__name__}) vs to_user_id={to_user_id}")
+            # 문자열로 변환하여 비교 (타입 불일치 방지)
+            if str(user_id) == str(to_user_id):
                 try:
                     await connection.send_json(message)
-                except:
-                    pass
+                    print(f"✅ 이모티콘 전송 성공: {to_user_id}")
+                    sent = True
+                except Exception as e:
+                    print(f"❌ 이모티콘 전송 실패: {to_user_id} - {e}")
+
+        if not sent:
+            print(f"⚠️ 받는 사람을 찾을 수 없음: {to_user_id}")
+            print(f"   현재 연결된 사용자 목록: {list(self.client_to_user.values())}")
 
     async def broadcast(self, data: dict):
         """
@@ -416,9 +432,11 @@ async def send_emoji(request: dict):
 
         print(f"\n{'='*60}")
         print(f"😀 이모티콘 전송 요청")
-        print(f"   - from: {from_user_id}")
+        print(f"   - from: {from_user_id} (타입: {type(from_user_id).__name__})")
         print(f"   - to: {to_user_ids}")
         print(f"   - emoji: {emoji_type}")
+        print(f"   - 현재 연결된 사용자: {list(manager.client_to_user.values())}")
+        print(f"   - user_locations 키: {list(manager.user_locations.keys())}")
 
         # 보낸 사람의 이름 조회
         from_user_name = "알 수 없음"

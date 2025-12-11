@@ -24,7 +24,7 @@ export const WakewordListener: React.FC<WakewordListenerProps> = ({
 }) => {
   const { state, statusMessage, startListening, stopListening } = useWakewordDetection({
     wakewords,
-    wakewordDuration: 3000,    // 3초 (더 긴 문구를 위해 증가)
+    wakewordDuration: 4000,    // 4초 (더 긴 문구 및 명확한 발음을 위해 증가)
     commandDuration: 4000,     // 4초
     pollingInterval: 3000,     // 3초마다 체크
     userId,

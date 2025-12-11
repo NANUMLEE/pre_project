@@ -67,7 +67,7 @@ export function Running({ course, onComplete, onBack }: RunningProps) {
   const [currentPosition, setCurrentPosition] = useState<GPSPosition | null>(null);
   const [selectedUserForEmoji, setSelectedUserForEmoji] = useState<string | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [receivedEmoji, setReceivedEmoji] = useState<{ emoji: string; from: string } | null>(null);
+  const [receivedEmoji, setReceivedEmoji] = useState<{ emoji: string; from: string; timestamp: string } | null>(null);
   const intervalRef = useRef<number | null>(null);
 
   // ✨ Wakeword 관련 state (신규)
@@ -184,19 +184,26 @@ export function Running({ course, onComplete, onBack }: RunningProps) {
   useEffect(() => {
     if (onEmojiReceived) {
       console.log('🎉 Running.tsx에서 이모티콘 수신:', onEmojiReceived);
+      console.log('   - timestamp:', onEmojiReceived.timestamp);
+      console.log('   - emoji:', onEmojiReceived.emoji);
+
       setReceivedEmoji({
         emoji: onEmojiReceived.emoji || '😀',
-        from: onEmojiReceived.from || 'unknown'
+        from: onEmojiReceived.from || 'unknown',
+        timestamp: onEmojiReceived.timestamp || Date.now().toString()  // ✨ timestamp 저장
       });
 
-      // 3초 후 초기화
+      console.log('✅ receivedEmoji 상태 업데이트됨');
+
+      // 2초 후 초기화
       const timer = setTimeout(() => {
+        console.log('🔄 receivedEmoji 초기화 (2초 후)');
         setReceivedEmoji(null);
-      }, 3000);
+      }, 2000);
 
       return () => clearTimeout(timer);
     }
-  }, [onEmojiReceived]);
+  }, [onEmojiReceived?.timestamp]); // ✨ timestamp를 의존성으로 사용 (매번 다른 값이므로 확실히 감지)
 
   // Haversine 공식을 사용하여 두 좌표 간의 거리 계산 (km 단위)
   const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
@@ -386,6 +393,7 @@ export function Running({ course, onComplete, onBack }: RunningProps) {
       {/* ✨ 받은 이모티콘 애니메이션 표시 (신규) - Map Area 위에 표시 */}
       {receivedEmoji && (
         <div
+          key={receivedEmoji.timestamp}  // ✨ 고정된 timestamp 사용 (무한 반복 방지)
           className="fixed inset-0 flex items-center justify-center pointer-events-none z-50"
           style={{
             animation: 'float-up 1s ease-out forwards',

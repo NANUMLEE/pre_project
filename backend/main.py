@@ -1128,17 +1128,32 @@ async def voice_command(
                 if intent == "SEND_EMOJI_BROADCAST":
                     to_user_ids = ["ALL"]
                 elif intent == "SEND_EMOJI_DIRECT":
-                    target_name = command_info.get("target_name")
-                    # nearby_runners에서 target_name과 일치하는 러너 찾기
-                    target = next(
-                        (r for r in nearby_runners if r.get("name") == target_name),
-                        None
-                    )
-                    if target:
-                        to_user_ids = [target.get("id")]
+                    # ✨ target_id가 있으면 직접 사용 (fuzzy matching 결과)
+                    target_id = command_info.get("target_id")
+                    if target_id:
+                        to_user_ids = [target_id]
+                        print(f"✅ target_id 사용: {target_id}")
+                    else:
+                        # target_id가 없으면 target_name으로 찾기 (fallback)
+                        target_name = command_info.get("target_name")
+                        target = next(
+                            (r for r in nearby_runners if r.get("name") == target_name),
+                            None
+                        )
+                        if target:
+                            to_user_ids = [target.get("id")]
+                            print(f"⚠️ fallback: target_name으로 찾음 {target.get('id')}")
 
                 # ws_server에 이모티콘 전송 요청
                 if to_user_ids:
+                    print(f"\n{'='*60}")
+                    print(f"📤 /api/send-emoji 호출 준비")
+                    print(f"   - URL: {WS_SERVER_URL}/api/send-emoji")
+                    print(f"   - from_user_id: {userId} (타입: {type(userId).__name__})")
+                    print(f"   - to_user_ids: {to_user_ids}")
+                    print(f"   - emoji_type: {emoji_type}")
+                    print(f"{'='*60}\n")
+
                     async with httpx.AsyncClient() as client:
                         emoji_response = await client.post(
                             f"{WS_SERVER_URL}/api/send-emoji",
@@ -1150,9 +1165,12 @@ async def voice_command(
                             timeout=5.0
                         )
                         if emoji_response.status_code == 200:
-                            print(f"✅ 이모티콘 전송 성공")
+                            print(f"✅ 이모티콘 전송 성공: {emoji_response.json()}")
                         else:
                             print(f"⚠️  이모티콘 전송 실패: {emoji_response.status_code}")
+                            print(f"   응답: {emoji_response.text}")
+                else:
+                    print(f"⚠️ to_user_ids가 비어있음 - 이모티콘 전송 안 됨")
             except Exception as emoji_error:
                 print(f"⚠️  이모티콘 전송 중 오류 (계속 진행): {emoji_error}")
 

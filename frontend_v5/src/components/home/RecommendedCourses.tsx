@@ -91,7 +91,8 @@ export function RecommendedCourses({
       console.log('🔄 추천 코스 초기 로드');
       loadRecommendedCourses();
     }
-  }, []); // 빈 배열: 탭 이동 시 갱신 방지, 데이터는 App.tsx에서 관리되므로 유지됨
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recommendedCourses.length, isLoading]); // recommendedCourses.length와 isLoading을 의존성에 추가하여 조건 변경 시 재실행
 
   const difficultyColors = {
     easy: 'text-[#03cfb4] bg-[#03cfb4]/10',
