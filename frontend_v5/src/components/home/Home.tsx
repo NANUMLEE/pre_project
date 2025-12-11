@@ -26,9 +26,25 @@ type HomeProps = {
   courses: Course[];
   nearbyLocations: NearbyLocation[];
   setNearbyLocations: (locations: NearbyLocation[]) => void;
+  recommendedCourses: Course[];
+  setRecommendedCourses: (courses: Course[]) => void;
+  allRecommendedCourses: Course[];
+  setAllRecommendedCourses: (courses: Course[]) => void;
 };
 
-export function Home({ user, onStartRunning, onCourseClick, onNavigate, courses, nearbyLocations, setNearbyLocations }: HomeProps) {
+export function Home({
+  user,
+  onStartRunning,
+  onCourseClick,
+  onNavigate,
+  courses,
+  nearbyLocations,
+  setNearbyLocations,
+  recommendedCourses,
+  setRecommendedCourses,
+  allRecommendedCourses,
+  setAllRecommendedCourses
+}: HomeProps) {
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       {/* Header */}
@@ -71,11 +87,18 @@ export function Home({ user, onStartRunning, onCourseClick, onNavigate, courses,
           <span className="text-lg">러닝 시작하기</span>
         </Button>
 
-        {/* Recommended Courses - AI Pattern Analysis */}
-        <RecommendedCourses courses={courses} onStartRunning={onStartRunning} />
-
         {/* Nearby Map */}
         <NearbyMap nearbyLocations={nearbyLocations} setNearbyLocations={setNearbyLocations} />
+
+        {/* Recommended Courses - AI Pattern Analysis */}
+        <RecommendedCourses
+          courses={courses}
+          onStartRunning={onStartRunning}
+          recommendedCourses={recommendedCourses}
+          setRecommendedCourses={setRecommendedCourses}
+          allRecommendedCourses={allRecommendedCourses}
+          setAllRecommendedCourses={setAllRecommendedCourses}
+        />
       </div>
 
       {/* Bottom Navigation */}

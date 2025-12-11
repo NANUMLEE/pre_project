@@ -169,18 +169,26 @@ export function convertToPlace(csvData: PlaceData, index: number): any {
   };
 }
 
-// 맞춤형 추천 코스 가져오기
-export async function fetchRecommendedCourses(userId: number = 1, k: number = 5): Promise<CourseData[]> {
+// 맞춤형 추천 코스 가져오기 (위치 기반)
+export async function fetchRecommendedCourses(
+  userId: number = 1,
+  userLat: number = 37.4979,
+  userLon: number = 127.0276,
+  k: number = 5
+): Promise<CourseData[]> {
   try {
-    console.log('추천 코스 요청:', `${API_BASE_URL}/api/recommended-courses`, { userId, k });
-    const response = await fetch(`${API_BASE_URL}/api/recommended-courses?user_id=${userId}&k=${k}`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'ngrok-skip-browser-warning': 'true',
-      },
-      mode: 'cors',
-    });
+    console.log('추천 코스 요청:', `${API_BASE_URL}/api/recommended-courses`, { userId, userLat, userLon, k });
+    const response = await fetch(
+      `${API_BASE_URL}/api/recommended-courses?user_id=${userId}&user_lat=${userLat}&user_lon=${userLon}&k=${k}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+        mode: 'cors',
+      }
+    );
 
     if (!response.ok) {
       throw new Error(`API 에러: ${response.status}`);
@@ -249,6 +257,42 @@ export async function fetchCourseCalories(
     return data.calorie_info.predicted_calories;
   } catch (error) {
     console.error('칼로리 조회 실패:', error);
+    return null;
+  }
+}
+
+// 코스 이름으로 칼로리 조회
+export async function fetchCourseCaloriesByName(
+  userId: number,
+  courseName: string
+): Promise<number | null> {
+  try {
+    console.log('칼로리 조회 요청 (이름):', `${API_BASE_URL}/api/course-calorie-info`, { userId, courseName });
+    const response = await fetch(
+      `${API_BASE_URL}/api/course-calorie-info?user_id=${userId}&course_name=${encodeURIComponent(courseName)}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+        mode: 'cors',
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`API 에러: ${response.status}`);
+    }
+    const data: CalorieInfoResponse = await response.json();
+    console.log(
+      '칼로리 조회 성공 (이름):',
+      data.course_info.course_name,
+      data.calorie_info.predicted_calories,
+      'kcal'
+    );
+    return data.calorie_info.predicted_calories;
+  } catch (error) {
+    console.error('칼로리 조회 실패 (이름):', error);
     return null;
   }
 }

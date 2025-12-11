@@ -105,8 +105,9 @@ formData.append('file', audioBlob, 'audio.webm');
 
 **핵심 기능**:
 1. **Wakeword Listening Loop**
-   - 2.5초 녹음 → Whisper STT → "리즘아" 포함 확인
+   - 3초 녹음 → Whisper STT → "헤이 리즘" 포함 확인 (유사도 매칭 지원)
    - 3초마다 반복
+   - Levenshtein Distance 기반 유사도 매칭 (편집 거리 30% 이내 허용)
 
 2. **명령어 처리**
    - Wakeword 감지 시 4초 녹음
@@ -120,7 +121,10 @@ formData.append('file', audioBlob, 'audio.webm');
 **사용 예시**:
 ```typescript
 const { state, startListening, stopListening } = useWakewordDetection({
-  wakewords: ['리즘아', '리즈마'],
+  wakewords: ['헤이 리즘', '헤이리즘', '헤이 리즘아'],
+  wakewordDuration: 3000,    // 3초 (더 긴 문구를 위해 증가)
+  commandDuration: 4000,     // 4초
+  pollingInterval: 3000,     // 3초마다 체크
   userId: 'user123',
   onCommandResult: (result) => {
     console.log('명령 결과:', result);
@@ -157,23 +161,27 @@ type VoiceState =
 
 **기능**:
 - 실시간 상태 표시 (이모지 + 메시지)
-- Wakeword 활성화/중지 토글 버튼
-- 플로팅 형태로 화면 우하단에 표시
+- 자동 활성화 (컴포넌트 마운트 시 자동으로 wakeword listening 시작)
+- 플로팅 형태로 화면 우하단에 표시 (bottom: 280px)
 
 **Props**:
 ```typescript
 interface WakewordListenerProps {
   userId: string;
-  wakewords?: string[];                           // 기본값: ['리즘아', '리즈마']
+  wakewords?: string[];                           // 기본값: ['헤이 리즘', '헤이리즘', '헤이 리즘아']
   onCommandResult?: (result: VoiceCommandResult) => void;
   onTTSStart?: () => void;
   onTTSEnd?: () => void;
 }
 ```
 
+**주요 특징**:
+- useEffect를 통해 컴포넌트 마운트 시 자동으로 startListening() 호출
+- 언마운트 시 자동으로 stopListening() 호출하여 정리
+
 **UI 상태별 표시**:
 - 😴 대기 중 (IDLE)
-- 👂 "리즘아"라고 불러보세요 (LISTENING_WAKEWORD)
+- 👂 "헤이 리즘"이라고 불러보세요 (LISTENING_WAKEWORD)
 - 🎤 명령을 말씀해 주세요 (RECORDING_COMMAND)
 - ⏳ 처리 중... (PROCESSING)
 - 🔊 응답 중... (SPEAKING)
@@ -203,34 +211,42 @@ export function Running({ course, onComplete, onBack }: RunningProps) {
   // ... 나머지 코드
 ```
 
-### Step 3: "러닝 시작" 버튼에 Wakeword 활성화 연결
+### Step 3: Running 페이지 진입 시 자동으로 Wakeword 활성화
 
 ```typescript
+// ✨ Running 페이지 진입 시 Wakeword 자동 활성화 (러닝은 수동 시작)
+useEffect(() => {
+  if (isLoggedIn) {
+    console.log('🎙️ Running 페이지 진입 → Wakeword 미리 활성화');
+    setIsWakewordActive(true);
+  }
+
+  // 페이지 떠날 때 Wakeword 비활성화
+  return () => {
+    console.log('⏹️ Running 페이지 종료 → Wakeword 비활성화');
+    setIsWakewordActive(false);
+  };
+}, [isLoggedIn]);
+
+// 러닝 시작은 별도로 처리
 const handleStart = () => {
-  // 로그인 체크 (기존)
   if (!isLoggedIn) {
     alert('러닝을 시작하려면 먼저 로그인하세요.');
     return;
   }
 
-  // 기존 러닝 시작 로직
   setIsRunning(true);
   setIsPaused(false);
-
-  // ✨ Wakeword 활성화 (신규)
-  setIsWakewordActive(true);
-  console.log('🎙️ Wakeword 리스너 활성화');
+  console.log('🏃 러닝 시작! (Wakeword는 이미 활성화됨)');
 };
 ```
 
-### Step 4: "러닝 종료" 시 Wakeword 비활성화
+### Step 4: "러닝 종료" 처리
 
 ```typescript
 const handleStopConfirm = () => {
   // 기존 종료 로직...
-
-  // ✨ Wakeword 비활성화 (신규)
-  setIsWakewordActive(false);
+  // Wakeword는 Running 페이지를 떠날 때 자동으로 비활성화됨 (useEffect의 cleanup)
 
   if (duration > 0) {
     const newRun: Run = { /* ... */ };
@@ -238,6 +254,8 @@ const handleStopConfirm = () => {
   }
 };
 ```
+
+**참고**: Wakeword 비활성화는 Step 3의 useEffect cleanup 함수에서 자동으로 처리됩니다.
 
 ### Step 5: 이모티콘 전송 콜백 처리
 
@@ -292,13 +310,13 @@ return (
     {isLoggedIn && userId && isWakewordActive && (
       <WakewordListener
         userId={userId}
-        wakewords={['리즘아', '리즈마']}
+        wakewords={['헤이 리즘', '헤이리즘', '헤이 리즘아']}
         onCommandResult={handleWakewordCommand}
         onTTSStart={() => {
-          console.log('🔊 TTS 시작 - 마이크 일시 중단 가능');
+          console.log('🔊 TTS 재생 시작');
         }}
         onTTSEnd={() => {
-          console.log('✅ TTS 완료 - 마이크 재활성화 가능');
+          console.log('✅ TTS 재생 완료');
         }}
       />
     )}
@@ -306,18 +324,24 @@ return (
 );
 ```
 
-### Step 7: (선택 사항) 자동 시작 로직
+### Step 7: 완료!
 
-러닝 시작과 동시에 자동으로 Wakeword를 활성화하려면:
+위의 단계들을 모두 완료하면 다음과 같이 동작합니다:
 
-```typescript
-useEffect(() => {
-  if (isRunning && !isWakewordActive && isLoggedIn) {
-    // 러닝 시작 후 자동으로 Wakeword 활성화
-    setIsWakewordActive(true);
-  }
-}, [isRunning, isLoggedIn]);
-```
+1. **Running 페이지 진입**
+   - 자동으로 Wakeword 리스너가 활성화됨
+   - 화면 우하단에 "헤이 리즘"이라고 불러보세요 표시
+
+2. **러닝 시작**
+   - "시작" 버튼 클릭 시 러닝 시작
+   - Wakeword는 이미 활성화되어 있으므로 즉시 사용 가능
+
+3. **음성 명령 사용**
+   - "헤이 리즘, 00한테 파이팅 보내줘"
+   - 자동으로 명령 인식 및 처리
+
+4. **페이지 종료**
+   - Running 페이지를 떠나면 자동으로 Wakeword 비활성화
 
 ---
 
@@ -343,8 +367,8 @@ useEffect(() => {
 
 ```
 사용자 액션:
-1. "러닝 시작" 버튼 한 번만 클릭
-2. 이후 "리즘아, 00한테 파이팅 보내줘"라고 말하기만 하면 됨
+1. Running 페이지 진입 시 자동으로 Wakeword 활성화
+2. 이후 "헤이 리즘, 00한테 파이팅 보내줬"라고 말하기만 하면 됨
 3. 자동으로 처리 → TTS 응답
 4. 다시 자동으로 Wakeword 대기 상태로 복귀
 
@@ -352,6 +376,8 @@ useEffect(() => {
 ✅ 핸즈프리 (버튼 없이 음성만으로 제어)
 ✅ 러닝 중 자연스러운 인터랙션
 ✅ 연속적인 대화 가능
+✅ 유사도 매칭으로 인식률 향상 (Levenshtein Distance)
+✅ Running 페이지 진입 시 자동 활성화
 ❌ 배터리 소모 증가 (연속 녹음)
 ❌ 주변 소음에 민감
 ```
@@ -526,7 +552,7 @@ const sendToWhisper = async (audioBlob: Blob, retries = 3): Promise<string> => {
 
 ## 🔍 트러블슈팅
 
-### 문제 1: "리즘아"가 감지되지 않아요
+### 문제 1: "헤이 리즘"이 감지되지 않아요
 
 **원인**:
 - 주변 소음이 큼
@@ -535,22 +561,24 @@ const sendToWhisper = async (audioBlob: Blob, retries = 3): Promise<string> => {
 
 **해결**:
 ```typescript
-// 1. Wakeword 목록 확장
-wakewords={['리즘아', '리즈마', '리즘', 'rhythm']}
+// 1. Wakeword 목록 확장 (이미 적용됨)
+wakewords={['헤이 리즘', '헤이리즘', '헤이 리즘아']}
 
-// 2. 녹음 시간 연장 (2.5초 → 3.5초)
+// 2. 녹음 시간 이미 3초로 설정됨
+wakewordDuration: 3000
+
+// 3. 유사도 매칭 이미 적용됨 (Levenshtein Distance)
+// - 편집 거리가 길이의 30% 이내이거나 최소 2 이하면 매칭
+// - 예: "헤이리줌", "헤리즘", "헤이림" 등도 인식 가능
+
+// 4. 추가 녹음 시간 연장이 필요하면:
 const { state } = useWakewordDetection({
-  wakewordDuration: 3500,
+  wakewordDuration: 3500,  // 3.5초로 증가
   // ...
 });
-
-// 3. 부분 매칭 허용
-const detected = wakewords.some(word => {
-  const normalized = text.toLowerCase().replace(/\s/g, '');
-  const target = word.toLowerCase().replace(/\s/g, '');
-  return normalized.includes(target) || target.includes(normalized);
-});
 ```
+
+**팁**: "헤이 리즘"을 또박또박 발음하면 인식률이 높아집니다.
 
 ### 문제 2: TTS가 재생되지 않아요 (iOS Safari)
 

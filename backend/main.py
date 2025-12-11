@@ -26,6 +26,7 @@ import uuid
 import httpx
 from fastapi import File, UploadFile, Form
 from fastapi.staticfiles import StaticFiles
+from calorie_model.calorie_model import predict_calorie
 
 # 환경 변수 로드
 load_dotenv()
@@ -122,14 +123,14 @@ except ImportError as e:
 
 
 # ================================================================
-# distance and pace-based model import
+# location-based model import (for recommended courses)
 # ================================================================
 try:
-    from distance_and_pace_model import recommend_courses_by_distance_pace
-    print("✅ distance and pace-based model imported successfully")
+    from location_model import recommend_courses as recommend_courses_by_location
+    print("✅ location-based model (for recommended courses) imported successfully")
 except ImportError as e:
-    print(f"❌ distance and pace-based model import failed: {str(e)}")
-    recommend_courses_by_distance_pace = None
+    print(f"❌ location-based model import failed: {str(e)}")
+    recommend_courses_by_location = None
 
 
 # ================================================================
@@ -282,6 +283,27 @@ def get_user_by_id(user_id: int):
     except Exception as e:
         print(f"❌ DB 조회 실패: {str(e)}")
         return None
+
+def get_user_avg_pace(user_id: int):
+    """사용자의 평균 페이스 조회 (최근 5개 기록 기준)"""
+    try:
+        with engine.begin() as conn:
+            query = text("""
+                SELECT AVG(pace_km) as avg_pace
+                FROM running_record
+                WHERE user_id = :user_id
+                ORDER BY start_time DESC
+                LIMIT 5
+            """)
+            result = conn.execute(query, {"user_id": user_id}).fetchone()
+
+            if result and result[0]:
+                return float(result[0])
+            else:
+                return 6.0  # 기본값: 6분/km
+    except Exception as e:
+        print(f"❌ 평균 페이스 조회 실패: {str(e)}")
+        return 6.0  # 오류 시 기본값
 
 def create_user(email: str, name: str):
     """새로운 사용자 생성"""
@@ -771,49 +793,37 @@ def create_running_record(request: RunningRecordCreate):
 
 
 # ================================
-#     거리/페이스 기반 추천 코스 API (Distance & Pace)
+#     위치 기반 추천 코스 API (Location-based)
 # ================================
 @app.get("/api/recommended-courses")
-def get_recommended_courses(user_id: int = 1, k: int = 5):
+def get_recommended_courses(user_id: int = 1, user_lat: float = 37.4979, user_lon: float = 127.0276, k: int = 5):
     """
-    사용자의 거리 및 페이스 기반 추천 러닝 코스 API
+    사용자의 위치 기반 추천 러닝 코스 API (location_model.py 사용)
 
     파라미터:
     - user_id: 사용자 ID
+    - user_lat: 사용자 위도 (기본: 강남역 위도)
+    - user_lon: 사용자 경도 (기본: 강남역 경도)
     - k: 추천할 코스 개수 (기본: 5)
 
-    사용 예시: /api/recommended-courses?user_id=1&k=5
+    사용 예시: /api/recommended-courses?user_id=1&user_lat=37.4979&user_lon=127.0276&k=5
     """
     try:
         print(f"\n{'='*60}")
-        print(f"📍 거리/페이스 기반 추천 코스 요청: user_id={user_id}, k={k}")
+        print(f"📍 위치 기반 추천 코스 요청: user_id={user_id}, lat={user_lat}, lon={user_lon}, k={k}")
         print(f"{'='*60}")
 
-        if recommend_courses_by_distance_pace is None:
-            raise Exception("distance and pace-based model을 불러올 수 없습니다")
+        if recommend_courses_by_location is None:
+            raise Exception("location-based model을 불러올 수 없습니다")
 
-        result = recommend_courses_by_distance_pace(user_id, k)
-
-        # 모델이 반환한 course_id를 기반으로 원본 COURSES 데이터와 매칭
-        if result.get("status") == "success" and result.get("recommended_courses"):
-            matched_courses = []
-            for recommended_course in result["recommended_courses"]:
-                course_id = recommended_course.get("course_id")
-                # COURSES 데이터에서 매칭되는 코스 찾기 (index로도 가능)
-                if isinstance(course_id, int) and 0 <= course_id < len(COURSES):
-                    matched_courses.append(COURSES[course_id])
-
-            # 매칭된 코스가 있으면 result 업데이트
-            if matched_courses:
-                result["recommended_courses"] = matched_courses
-                result["recommended_count"] = len(matched_courses)
+        result = recommend_courses_by_location(user_id, user_lat, user_lon, top_k=k)
 
         print(f"✅ 추천 완료: {result.get('recommended_count', 0)}개 코스")
         print(f"{'='*60}\n")
 
         return result
     except Exception as e:
-        print(f"❌ 거리/페이스 기반 추천 API 에러: {str(e)}")
+        print(f"❌ 위치 기반 추천 API 에러: {str(e)}")
         import traceback
         traceback.print_exc()
         print(f"{'='*60}\n")
@@ -823,7 +833,7 @@ def get_recommended_courses(user_id: int = 1, k: int = 5):
             "recommended_count": 0,
             "recommended_courses": [],
             "error": str(e),
-            "message": "거리와 페이스 기반 추천에 실패했습니다"
+            "message": "위치 기반 추천에 실패했습니다"
         }
 
 
@@ -915,20 +925,24 @@ def get_course_calorie_info(user_id: int, course_name: str = None, course_index:
         else:
             distance_km = float(distance_raw) if distance_raw else 5.0
 
-        # 러닝 시간 추정 (평균 페이스 6분/km 기준)
-        running_time_min = distance_km * 6.0
+        # 사용자의 평균 페이스 조회 (최근 5개 기록 기준)
+        user_avg_pace = get_user_avg_pace(user_id)
 
-        # 칼로리 예측
-        from calorie_prediction_model import predict_calories
+        # 러닝 시간 계산
+        running_time_min = distance_km * user_avg_pace
 
-        predicted_calories = predict_calories(
-            user_id, user_gender, user_age, user_height_cm, user_weight_kg,
-            running_time_min, distance_km
+        # 시작/종료 시간 생성
+        from datetime import timedelta
+        start_time = datetime.now()
+        end_time = start_time + timedelta(minutes=running_time_min)
+
+        # 칼로리 예측 (CatBoost 모델)
+        predicted_calories = predict_calorie(
+            user_age, user_height_cm, user_weight_kg, start_time, end_time
         )
 
-        # predicted_calories가 None일 경우 처리
-        if predicted_calories is None:
-            raise HTTPException(status_code=500, detail="칼로리 예측에 실패했습니다. 사용자 정보를 확인해주세요.")
+        # 소수점 2자리 반올림
+        predicted_calories = round(predicted_calories, 2)
 
         return {
             "success": True,

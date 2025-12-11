@@ -63,6 +63,10 @@ export default function App() {
   }
   const [nearbyLocations, setNearbyLocations] = useState<NearbyLocation[]>([]);
 
+  // 추천 코스 state (홈 화면에서 로드되고 탭 전환 시에도 유지됨)
+  const [recommendedCourses, setRecommendedCourses] = useState<Course[]>([]);
+  const [allRecommendedCourses, setAllRecommendedCourses] = useState<Course[]>([]);
+
   // API 데이터 로드
   useEffect(() => {
     const loadData = async () => {
@@ -252,6 +256,10 @@ export default function App() {
           courses={coursesData}
           nearbyLocations={nearbyLocations}
           setNearbyLocations={setNearbyLocations}
+          recommendedCourses={recommendedCourses}
+          setRecommendedCourses={setRecommendedCourses}
+          allRecommendedCourses={allRecommendedCourses}
+          setAllRecommendedCourses={setAllRecommendedCourses}
         />
       )}
       

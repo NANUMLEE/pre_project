@@ -214,55 +214,6 @@ export function NearbyMap({ nearbyLocations, setNearbyLocations }: NearbyMapProp
           </div>
         </div>
       )}
-
-      {/* 주변 러닝 코스 */}
-      <div className="p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-[#2e2d52] flex items-center gap-2">
-            <MapPin className="w-5 h-5 text-[#f89305]" />
-            주변 러닝 코스
-          </h3>
-          <button
-            onClick={() => {
-              if (myPosition) {
-                console.log('🔄 주변 러닝 코스 새로고침');
-                fetchNearbyRunningCourses(myPosition.lat, myPosition.lng);
-              }
-            }}
-            className="text-xs px-2 py-1 bg-[#f89305] text-white rounded hover:bg-orange-600 transition-colors"
-          >
-            새로고침
-          </button>
-        </div>
-        {isLoading ? (
-          <div className="flex justify-center items-center py-4">
-            <div className="animate-spin">
-              <div className="w-4 h-4 border-2 border-[#f89305] border-t-transparent rounded-full"></div>
-            </div>
-            <span className="text-sm text-gray-500 ml-2">코스 로딩 중...</span>
-          </div>
-        ) : nearbyLocations.length > 0 ? (
-          <div className="space-y-2">
-            {nearbyLocations.map((location) => (
-              <div
-                key={location.id}
-                className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors cursor-pointer"
-              >
-                <MapPin className="w-4 h-4 text-[#787878]" />
-                <div>
-                  <p className="text-sm text-[#2e2d52]">{location.name}</p>
-                  <p className="text-xs text-[#787878]">내 위치로부터 {location.distanceFromMe}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-4">
-            <p className="text-sm text-gray-500">주변 러닝 코스를 불러올 수 없습니다</p>
-            <p className="text-xs text-gray-400 mt-1">위치 정보를 확인해주세요</p>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

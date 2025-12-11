@@ -10,7 +10,6 @@ src/
  │  ├─ map/
  │  │  ├─ GPSMap.tsx          ← GPS 위치 추적 + 지도 통합 (핵심 컴포넌트)
  │  │  ├─ LeafletMap.tsx      ← Leaflet 기반 지도 렌더링
- │  │  ├─ KakaoMap.tsx        ← Kakao Map 템플릿 (나중에 구현)
  │  │  └─ MAP_GUIDE.md        ← 이 파일
  │  └─ running/
  │     └─ Running.tsx         ← GPSMap 통합된 러닝 화면
@@ -34,7 +33,6 @@ src/
 - **특징**:
   - 상태 관리 X (상태비수 컴포넌트)
   - GPS 데이터 수신만 담당
-  - 나중에 KakaoMap으로 교체 가능한 구조
 
 ### 3. **GPSMap.tsx** - GPS + 지도 통합 (핵심)
 - **역할**: GPS 실시간 추적 + 지도 렌더링
@@ -48,10 +46,6 @@ src/
   - 위치 변경 시 부모 컴포넌트에 콜백
   - 에러/로딩 상태 관리
 
-### 4. **KakaoMap.tsx** - Kakao Map 템플릿
-- 현재는 더미 컴포넌트
-- 구현 방법 상세 주석 포함
-- 나중에 구현할 때 참고
 
 ### 5. **Running.tsx** - 러닝 화면
 - **수정 사항**:

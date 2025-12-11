@@ -1,53 +1,97 @@
-import { Sparkles, MapPin, TrendingUp } from 'lucide-react';
+import { Sparkles, MapPin, Flame } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
 import { useState, useEffect } from 'react';
 import type { Course } from '../../types';
-import { fetchRecommendedCourses, convertToCourse } from '../../services/api';
+import { fetchRecommendedCourses, convertToCourse, fetchCourseCaloriesByName } from '../../services/api';
 
 type RecommendedCoursesProps = {
   courses: Course[];
   onStartRunning: (course: Course) => void;
+  recommendedCourses: Course[];
+  setRecommendedCourses: (courses: Course[]) => void;
+  allRecommendedCourses: Course[];
+  setAllRecommendedCourses: (courses: Course[]) => void;
 };
 
-export function RecommendedCourses({ courses, onStartRunning }: RecommendedCoursesProps) {
+export function RecommendedCourses({
+  courses,
+  onStartRunning,
+  recommendedCourses,
+  setRecommendedCourses,
+  allRecommendedCourses,
+  setAllRecommendedCourses
+}: RecommendedCoursesProps) {
   const [showAllRecommended, setShowAllRecommended] = useState(false);
-  const [recommendedCourses, setRecommendedCourses] = useState<Course[]>([]);
-  const [allRecommendedCourses, setAllRecommendedCourses] = useState<Course[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
 
-  // 추천 코스 데이터 로드
-  useEffect(() => {
-    const loadRecommendedCourses = async () => {
-      try {
-        setIsLoading(true);
-        // localStorage에서 userId 가져오기
-        const userId = localStorage.getItem('userId');
-        const actualUserId = userId ? parseInt(userId) : 1;
+  // 추천 코스 데이터 로드 함수
+  const loadRecommendedCourses = async () => {
+    try {
+      setIsLoading(true);
+      // localStorage에서 userId 가져오기
+      const userId = localStorage.getItem('userId');
+      const actualUserId = userId ? parseInt(userId) : 1;
 
-        // API에서 추천 코스 조회 (상위 5개)
-        const recommendedData = await fetchRecommendedCourses(actualUserId, 5);
+      // GPS 위치 가져오기
+      let userLat = 37.4979; // 기본값: 강남역
+      let userLon = 127.0276;
 
-        // CSV 데이터를 Course 타입으로 변환
-        const convertedCourses = recommendedData.map((course, index) =>
-          convertToCourse(course, index)
-        );
-
-        // 상위 3개는 홈 화면에, 전체는 모달에 표시
-        setRecommendedCourses(convertedCourses.slice(0, 3));
-        setAllRecommendedCourses(convertedCourses);
-      } catch (error) {
-        console.error('추천 코스 로드 실패:', error);
-        // 실패 시 기존 데이터 사용
-        setRecommendedCourses(courses.slice(0, 3));
-        setAllRecommendedCourses(courses);
-      } finally {
-        setIsLoading(false);
+      if ('geolocation' in navigator) {
+        try {
+          const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              timeout: 5000,
+              maximumAge: 60000, // 1분간 캐시된 위치 사용
+            });
+          });
+          userLat = position.coords.latitude;
+          userLon = position.coords.longitude;
+          console.log('🔄 GPS 위치 가져오기 성공:', userLat, userLon);
+        } catch (geoError) {
+          console.warn('GPS 위치 가져오기 실패, 기본 위치 사용:', geoError);
+        }
       }
-    };
 
-    loadRecommendedCourses();
-  }, [courses]);
+      // API에서 추천 코스 조회 (상위 5개, 위치 기반)
+      const recommendedData = await fetchRecommendedCourses(actualUserId, userLat, userLon, 5);
+
+      // CSV 데이터를 Course 타입으로 변환
+      const convertedCourses = recommendedData.map((course, index) =>
+        convertToCourse(course, index)
+      );
+
+      // 칼로리 정보 로드 (코스 이름으로 조회)
+      const coursesWithCalories = await Promise.all(
+        convertedCourses.map(async (course) => {
+          const calories = await fetchCourseCaloriesByName(actualUserId, course.name);
+          return {
+            ...course,
+            expectedCalories: calories || 250
+          };
+        })
+      );
+
+      // 상위 3개는 홈 화면에, 전체는 모달에 표시
+      setRecommendedCourses(coursesWithCalories.slice(0, 3));
+      setAllRecommendedCourses(coursesWithCalories);
+    } catch (error) {
+      console.error('추천 코스 로드 실패:', error);
+      // 실패 시 기존 데이터 사용
+      setRecommendedCourses(courses.slice(0, 3));
+      setAllRecommendedCourses(courses);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 초기 로드 (컴포넌트 마운트 시, 데이터가 없을 때만)
+  useEffect(() => {
+    if (recommendedCourses.length === 0 && !isLoading) {
+      console.log('🔄 추천 코스 초기 로드');
+      loadRecommendedCourses();
+    }
+  }, []); // 빈 배열: 탭 이동 시 갱신 방지, 데이터는 App.tsx에서 관리되므로 유지됨
 
   const difficultyColors = {
     easy: 'text-[#03cfb4] bg-[#03cfb4]/10',
@@ -74,14 +118,25 @@ export function RecommendedCourses({ courses, onStartRunning }: RecommendedCours
   return (
     <>
       <div className="mb-6">
-        <div className="flex items-center gap-2 mb-4">
-          <div className="w-10 h-10 bg-gradient-to-br from-[#f89305] to-[#ffa940] rounded-lg flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-white" />
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className="w-10 h-10 bg-gradient-to-br from-[#f89305] to-[#ffa940] rounded-lg flex items-center justify-center">
+              <Sparkles className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h3 className="text-[#2e2d52]">추천 코스</h3>
+              <p className="text-xs text-[#787878]">당신의 러닝 패턴을 분석했어요</p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-[#2e2d52]">추천 코스</h3>
-            <p className="text-xs text-[#787878]">당신의 러닝 패턴을 분석했어요</p>
-          </div>
+          <button
+            onClick={() => {
+              console.log('🔄 추천 코스 새로고침');
+              loadRecommendedCourses();
+            }}
+            className="text-xs px-2 py-1 bg-[#f89305] text-white rounded hover:bg-orange-600 transition-colors"
+          >
+            새로고침
+          </button>
         </div>
 
         {isLoading ? (
@@ -121,8 +176,8 @@ export function RecommendedCourses({ courses, onStartRunning }: RecommendedCours
                           <span>{course.distance}km</span>
                         </div>
                         <div className="flex items-center gap-1 text-sm text-[#787878]">
-                          <TrendingUp className="w-4 h-4" />
-                          <span>평균 {course.avgPace}분/km</span>
+                          <Flame className="w-4 h-4" />
+                          <span>예상 {course.expectedCalories || 250}kcal</span>
                         </div>
                       </div>
                     </div>
@@ -194,8 +249,8 @@ export function RecommendedCourses({ courses, onStartRunning }: RecommendedCours
                         <span>{course.distance}km</span>
                       </div>
                       <div className="flex items-center gap-1 text-xs text-[#787878]">
-                        <TrendingUp className="w-3 h-3" />
-                        <span>평균 {course.avgPace}분/km</span>
+                        <Flame className="w-3 h-3" />
+                        <span>예상 {course.expectedCalories || 250}kcal</span>
                       </div>
                     </div>
                   </div>
