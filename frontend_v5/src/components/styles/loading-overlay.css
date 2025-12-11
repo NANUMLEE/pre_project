@@ -1,0 +1,12 @@
+@keyframes spinnerRotate {
+  from {
+    transform: rotate(0deg) !important;
+  }
+  to {
+    transform: rotate(360deg) !important;
+  }
+}
+
+svg.animate-spin {
+  animation: spinnerRotate 0.8s linear infinite !important;
+}
